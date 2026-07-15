@@ -7,6 +7,7 @@ PRD.md "생산 라인" formulas (order fixed):
 """
 
 from sampleordersystem.model.production_queue import (
+    ProductionProgress,
     ProductionQueue,
     ProductionQueueItem,
     calculate_actual_production,
@@ -180,6 +181,39 @@ def test_dequeue_starts_the_next_items_timer():
     assert dequeued is front
     assert behind.started_at == 10.0
     assert queue.remaining_time() == 5.0
+
+
+def test_front_progress_is_none_when_queue_empty():
+    queue = ProductionQueue(clock=FakeClock())
+
+    assert queue.front_progress() is None
+
+
+def test_front_progress_reports_floor_of_elapsed_fraction():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    item = make_item(actual_production=10, total_time=20.0)
+    queue.enqueue(item)
+
+    clock.advance(10.0)  # half of total_time -> avg_per_unit=2.0 -> 5 units
+
+    progress = queue.front_progress()
+
+    assert progress == ProductionProgress(item=item, elapsed=10.0, produced_so_far=5)
+
+
+def test_front_progress_never_exceeds_actual_production_even_well_past_total_time():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    item = make_item(actual_production=10, total_time=20.0)
+    queue.enqueue(item)
+
+    clock.advance(40.0)  # 2x total_time
+
+    progress = queue.front_progress()
+
+    assert progress.produced_so_far == 10
+    assert progress.elapsed == 40.0
 
 
 def test_dequeue_on_now_empty_queue_does_not_crash():

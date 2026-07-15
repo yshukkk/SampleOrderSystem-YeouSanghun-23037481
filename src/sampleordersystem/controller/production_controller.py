@@ -36,7 +36,6 @@ from sampleordersystem.view import menus, tables
 
 EXIT_MESSAGE = "생산 라인 메뉴를 종료합니다."
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
-STATUS_MESSAGE = "생산 라인 대기 중인 항목 수: {count}"
 EMPTY_QUEUE_MESSAGE = "생산 완료 처리할 항목이 없습니다."
 NOT_READY_MESSAGE = "아직 생산이 완료되지 않았습니다: 남은 시간={remaining_time}"
 ORDER_NOT_FOUND_FOR_QUEUE_ITEM_MESSAGE = "생산 큐 항목에 연결된 주문을 찾을 수 없습니다: {order_id}"
@@ -87,7 +86,8 @@ class ProductionController:
         return True
 
     def _show_status(self) -> None:
-        self._write(STATUS_MESSAGE.format(count=len(self.production_queue)))
+        progress = self.production_queue.front_progress()
+        self._write(tables.render_production_status(len(self.production_queue), progress))
 
     def _list_queue(self) -> None:
         # Non-destructive: iterate/peek only, never dequeue, so listing the

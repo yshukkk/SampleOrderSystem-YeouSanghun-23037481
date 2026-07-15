@@ -78,6 +78,37 @@ def test_status_reflects_current_queue_length(tmp_path):
     assert "2" in console.printed_text()
 
 
+def test_status_shows_in_production_line_with_progress_when_queue_non_empty(tmp_path):
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    queue.enqueue(
+        ProductionQueueItem(
+            order_id=7, sample_id=3, quantity=10, shortfall=10, actual_production=10, total_time=20.0
+        )
+    )
+    clock.advance(10.0)  # half elapsed -> produced_so_far == 5
+    controller, console, _, _, _ = build_controller(tmp_path, ["1", "4"], queue=queue)
+
+    controller.run_once()
+
+    printed = console.printed_text()
+    assert "생산 중" in printed
+    assert "주문 ID=7" in printed
+    assert "시료ID=3" in printed
+    assert "목표생산량=10" in printed
+    assert "현재까지 생산량=5" in printed
+
+
+def test_status_omits_in_production_line_when_queue_empty(tmp_path):
+    controller, console, _, _, _ = build_controller(tmp_path, ["1", "4"])
+
+    controller.run_once()
+
+    printed = console.printed_text()
+    assert "생산 중" not in printed
+    assert "0" in printed
+
+
 def test_list_queue_preserves_fifo_order_and_is_non_destructive(tmp_path):
     queue = ProductionQueue()
     queue.enqueue(ProductionQueueItem(order_id=1, sample_id=10, quantity=5, shortfall=2, actual_production=4, total_time=8.0))

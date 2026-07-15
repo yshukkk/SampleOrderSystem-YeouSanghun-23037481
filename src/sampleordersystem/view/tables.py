@@ -4,13 +4,27 @@ Every function here is a plain function of its arguments -- no printing,
 no state, no decisions about *what* to show, only *how* to render it.
 """
 
+from dataclasses import dataclass
+
 from sampleordersystem.model.order import Order
-from sampleordersystem.model.production_queue import ProductionQueueItem
+from sampleordersystem.model.production_queue import ProductionProgress, ProductionQueueItem
 from sampleordersystem.model.sample import Sample
 
 EMPTY_SAMPLE_LIST_MESSAGE = "등록된 시료가 없습니다."
 EMPTY_ORDER_LIST_MESSAGE = "표시할 주문이 없습니다."
 EMPTY_PRODUCTION_QUEUE_MESSAGE = "생산 대기 중인 항목이 없습니다."
+EMPTY_STOCK_STATUS_MESSAGE = "등록된 시료가 없습니다."
+
+# Order-count-by-status categories shown on the monitoring screen, in display
+# order. REJECTED is deliberately absent from this tuple -- PRD 4. 모니터링
+# excludes it explicitly, and since `render_order_status_counts_table` only
+# ever iterates this tuple to build rows, REJECTED can never appear as a row
+# no matter what `counts` dict the caller passes in.
+ORDER_STATUS_CATEGORIES = ("RESERVED", "CONFIRMED", "PRODUCING", "RELEASED")
+
+STOCK_STATUS_SUFFICIENT = "여유"
+STOCK_STATUS_SHORT = "부족"
+STOCK_STATUS_DEPLETED = "고갈"
 
 
 def render_sample_table(samples: list[Sample]) -> str:
@@ -65,6 +79,69 @@ def render_production_queue_table(items: list[ProductionQueueItem]) -> str:
             f"{item.shortfall} | {item.actual_production} | {item.total_time}"
         )
     return "\n".join(rows)
+
+
+def render_production_status(count: int, progress: ProductionProgress | None) -> str:
+    """Render the "생산 라인 현황" screen: backlog count + front item progress.
+
+    Always shows the backlog count line. When `progress` is not None (i.e.
+    something is actively in production), an additional line shows that
+    item's order/sample id, target 실생산량, and 현재까지 생산량 -- when
+    `progress` is None (empty queue), that second line is simply omitted,
+    never fabricated.
+    """
+    lines = [f"생산 라인 대기 중인 항목 수: {count}"]
+    if progress is not None:
+        lines.append(
+            "생산 중: 주문 ID={order_id} 시료ID={sample_id} 목표생산량={actual_production} "
+            "현재까지 생산량={produced_so_far}".format(
+                order_id=progress.item.order_id,
+                sample_id=progress.item.sample_id,
+                actual_production=progress.item.actual_production,
+                produced_so_far=progress.produced_so_far,
+            )
+        )
+    return "\n".join(lines)
+
+
+def render_order_status_counts_table(counts: dict) -> str:
+    """Render the monitoring screen's "주문량 확인" view: one row per status.
+
+    Iterates only `ORDER_STATUS_CATEGORIES` (RESERVED/CONFIRMED/PRODUCING/
+    RELEASED) regardless of what keys `counts` happens to contain -- REJECTED
+    (or any other status) in `counts` is silently ignored and never rendered,
+    per PRD "REJECTED는 유효한 주문이 아니므로 이 화면에서 제외". A missing
+    category in `counts` renders as 0, not a crash.
+    """
+    rows = ["상태 | 주문 수", "----------------"]
+    for status in ORDER_STATUS_CATEGORIES:
+        rows.append(f"{status} | {counts.get(status, 0)}")
+    return "\n".join(rows)
+
+
+@dataclass
+class StockStatusRow:
+    """One row of the "재고량 확인" view: a sample plus its computed status label."""
+
+    sample: Sample
+    status_label: str
+
+
+def render_stock_status_table(rows: list[StockStatusRow]) -> str:
+    """Render the monitoring screen's "재고량 확인" view: one row per sample.
+
+    `rows` is expected to already carry each sample's computed status label
+    (여유/부족/고갈) -- this function does no classification of its own, only
+    rendering, matching this module's convention of pure rendering functions
+    with filtering/classification left to the caller.
+    """
+    if not rows:
+        return EMPTY_STOCK_STATUS_MESSAGE
+
+    lines = ["ID | 이름 | 재고 | 상태", "-------------------------------------"]
+    for row in rows:
+        lines.append(f"{row.sample.id} | {row.sample.name} | {row.sample.stock} | {row.status_label}")
+    return "\n".join(lines)
 
 
 def render_summary_line(sample_count: int, order_count: int, production_queue_waiting: int) -> str:

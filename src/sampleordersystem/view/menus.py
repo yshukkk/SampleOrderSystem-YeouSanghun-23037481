@@ -97,6 +97,20 @@ def render_shipping_guide() -> str:
     return "(출고 처리할 주문 번호를 입력하세요)"
 
 
+_MONITORING_MENU_LINES = (
+    "1. 주문량 확인",
+    "2. 재고량 확인",
+    "3. 종료",
+)
+
+
+def render_monitoring_menu() -> str:
+    """Return the full monitoring menu text, ending in a prompt."""
+    header = "----- 모니터링 -----"
+    body = "\n".join(_MONITORING_MENU_LINES)
+    return f"{header}\n{body}\n번호를 선택하세요: "
+
+
 def render_main_menu(summary: str) -> str:
     """Return the full main-menu text (with a summary line), ending in a prompt."""
     header = "----- SampleOrderSystem 메인 메뉴 -----"
@@ -106,7 +120,8 @@ def render_main_menu(summary: str) -> str:
             "2. 주문 (접수/승인/거절)",
             "3. 생산 라인",
             "4. 출고 처리",
-            "5. 종료",
+            "5. 모니터링",
+            "6. 종료",
         )
     )
     return f"{header}\n{summary}\n{body}\n번호를 선택하세요: "

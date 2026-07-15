@@ -51,6 +51,21 @@ def calculate_total_time(avg_production_time: float, actual_production: int) -> 
 
 
 @dataclass
+class ProductionProgress:
+    """Snapshot of the front-of-queue item's in-progress production.
+
+    Returned by `ProductionQueue.front_progress()`. `produced_so_far` is
+    always in `[0, item.actual_production]` -- it never exceeds the target,
+    even once `is_front_ready()` is already True and `elapsed` has gone
+    past `item.total_time`.
+    """
+
+    item: "ProductionQueueItem"
+    elapsed: float
+    produced_so_far: int
+
+
+@dataclass
 class ProductionQueueItem:
     """One entry in the FIFO production queue.
 
@@ -121,6 +136,34 @@ class ProductionQueue:
         if front.started_at is None:
             return front.total_time
         return max(0.0, front.total_time - (self._clock() - front.started_at))
+
+    def front_progress(self) -> ProductionProgress | None:
+        """Snapshot of "현재까지의 생산량" for the front item, or None if empty.
+
+        Does not duplicate `remaining_time()`/`is_front_ready()`'s elapsed-time
+        logic beyond the same defensive `started_at is None` -> elapsed=0.0
+        handling. `produced_so_far` is the floor of how many whole units'
+        worth of elapsed time have passed, capped at `actual_production` so
+        it never overshoots the target even long after production is ready.
+        """
+        front = self.peek()
+        if front is None:
+            return None
+
+        elapsed = 0.0 if front.started_at is None else self._clock() - front.started_at
+
+        if front.actual_production <= 0:
+            produced_so_far = front.actual_production
+        else:
+            avg_production_time_per_unit = front.total_time / front.actual_production
+            if avg_production_time_per_unit <= 0:
+                produced_so_far = front.actual_production
+            else:
+                produced_so_far = min(
+                    front.actual_production, int(elapsed // avg_production_time_per_unit)
+                )
+
+        return ProductionProgress(item=front, elapsed=elapsed, produced_so_far=produced_so_far)
 
     def is_front_ready(self) -> bool:
         """True only if the front item exists and its production time has elapsed."""

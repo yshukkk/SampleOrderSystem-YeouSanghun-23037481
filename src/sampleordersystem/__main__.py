@@ -7,12 +7,13 @@ to exit the whole application.
 
 Sample management (Phase 2), order intake/approval/rejection + the
 production queue (Phase 3/4), the production line's auto-completion
-screen (Phase 5), and shipping (Phase 6) exist as sub-menus so far --
-monitoring is a later phase and is not routed here yet.
+screen (Phase 5), shipping (Phase 6), and monitoring (Phase 7) all exist
+as sub-menus.
 """
 
 from pathlib import Path
 
+from sampleordersystem.controller.monitoring_controller import MonitoringController
 from sampleordersystem.controller.order_controller import OrderController
 from sampleordersystem.controller.production_controller import ProductionController
 from sampleordersystem.controller.sample_controller import SampleController
@@ -63,6 +64,7 @@ def run() -> None:
     order_controller = OrderController(order_repository, sample_repository, production_queue=production_queue)
     production_controller = ProductionController(order_repository, sample_repository, production_queue)
     shipping_controller = ShippingController(order_repository, sample_repository)
+    monitoring_controller = MonitoringController(sample_repository, order_repository)
 
     keep_going = True
     while keep_going:
@@ -89,6 +91,10 @@ def run() -> None:
             while sub_running:
                 sub_running = shipping_controller.run_once()
         elif choice == "5":
+            sub_running = True
+            while sub_running:
+                sub_running = monitoring_controller.run_once()
+        elif choice == "6":
             print(EXIT_MESSAGE)
             keep_going = False
         else:
