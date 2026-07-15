@@ -146,7 +146,7 @@ SampleOrderSystem/
     order.py                # Order 엔티티 + OrderRepository. 상태 전이는 순수 함수/메서드로, 콘솔 I/O 없이 단위 테스트 가능하게.
   controller/
     order_controller.py      # 주문 접수만 (승인/거절은 Phase 4)
-  src/sampleordersystem/__main__.py   # 메인 메뉴: 요약 정보(등록 시료 수, 총 재고, 전체 주문 수, 생산라인 대기) + 하위 메뉴 라우팅
+  src/sampleordersystem/__main__.py   # 메인 메뉴: 요약 정보(등록 시료 수, 전체 주문 수 - RELEASED/REJECTED 제외, 생산라인 대기) + 하위 메뉴 라우팅
   tests/
     model/test_order_transitions.py     # 이 시점에는 RESERVED 생성과 REJECTED/CONFIRMED/PRODUCING 전이 로직의 순수 함수 단위 테스트(호출은 아직 컨트롤러에 연결 안 해도 전이 규칙 자체는 여기서 검증)
     controller/test_order_controller.py  # 미등록 시료 ID로 주문 불가, 접수 직후 RESERVED

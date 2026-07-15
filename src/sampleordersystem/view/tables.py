@@ -67,16 +67,12 @@ def render_production_queue_table(items: list[ProductionQueueItem]) -> str:
     return "\n".join(rows)
 
 
-def render_summary_line(
-    sample_count: int, total_stock: int, order_count: int, production_queue_waiting: int
-) -> str:
-    """Render the main-menu summary line: sample/stock/order counts + queue backlog.
+def render_summary_line(sample_count: int, order_count: int, production_queue_waiting: int) -> str:
+    """Render the main-menu summary line: sample/active-order counts + queue backlog.
 
-    `production_queue_waiting` is always 0 at this phase since the production
-    queue itself (Phase 4+) does not exist yet -- kept as an explicit
-    parameter so callers stay honest about that once it does.
+    `order_count` is expected to already be filtered to active (non-terminal)
+    orders by the caller -- RELEASED/REJECTED orders are excluded, since a
+    finished order isn't meaningful "load" on the system from this summary's
+    point of view.
     """
-    return (
-        f"등록 시료 수: {sample_count} | 총 재고: {total_stock} | "
-        f"전체 주문 수: {order_count} | 생산라인 대기: {production_queue_waiting}"
-    )
+    return f"등록 시료 수: {sample_count} | 전체 주문 수: {order_count} | 생산라인 대기: {production_queue_waiting}"

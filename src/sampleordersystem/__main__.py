@@ -17,6 +17,7 @@ from sampleordersystem.controller.order_controller import OrderController
 from sampleordersystem.controller.production_controller import ProductionController
 from sampleordersystem.controller.sample_controller import SampleController
 from sampleordersystem.controller.shipping_controller import ShippingController
+from sampleordersystem.model import order as order_model
 from sampleordersystem.model.order import OrderRepository
 from sampleordersystem.model.production_queue import ProductionQueue
 from sampleordersystem.model.sample import SampleRepository
@@ -31,6 +32,9 @@ EXIT_MESSAGE = "SampleOrderSystem을 종료합니다."
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 
 
+_TERMINAL_ORDER_STATUSES = {order_model.STATUS_RELEASED, order_model.STATUS_REJECTED}
+
+
 def render_summary(
     sample_repository: SampleRepository,
     order_repository: OrderRepository,
@@ -38,11 +42,10 @@ def render_summary(
 ) -> str:
     samples = sample_repository.list_all()
     orders = order_repository.list_all()
-    total_stock = sum(sample.stock for sample in samples)
+    active_order_count = sum(1 for order in orders if order.status not in _TERMINAL_ORDER_STATUSES)
     return tables.render_summary_line(
         sample_count=len(samples),
-        total_stock=total_stock,
-        order_count=len(orders),
+        order_count=active_order_count,
         production_queue_waiting=production_queue_waiting,
     )
 
