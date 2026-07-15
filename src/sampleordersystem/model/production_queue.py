@@ -21,6 +21,9 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
+from sampleordersystem.model.order import STATUS_PRODUCING, OrderRepository
+from sampleordersystem.model.sample import SampleRepository
+
 
 def calculate_shortfall(quantity: int, stock: int) -> int:
     """부족분 = 주문 수량 - 현재 재고.
@@ -177,3 +180,56 @@ class ProductionQueue:
 
     def __iter__(self):
         return iter(self._items)
+
+
+def rebuild_production_queue(
+    order_repository: OrderRepository,
+    sample_repository: SampleRepository,
+    production_queue: ProductionQueue,
+) -> None:
+    """Repopulate an in-memory `ProductionQueue` from persisted PRODUCING orders.
+
+    `ProductionQueue` itself is never persisted to JSON (see module
+    docstring) -- only an order's final `status: "PRODUCING"` survives a
+    restart. This is a **best-effort reconstruction**, not a true resume:
+    the original 부족분/실생산량/총생산시간 values computed at approval time,
+    and any elapsed production progress, are gone. This function
+    recomputes those three figures from the sample's CURRENT stock (not
+    the stock at original approval time, which isn't recoverable) via the
+    same formulas the live approve-flow uses, and re-enqueues each
+    restored item through the normal `enqueue()` path -- so the
+    front-of-queue item's production timer restarts from zero at
+    reconstruction time (its true elapsed progress before the restart is
+    lost). Both of these are accepted limitations of the in-memory-queue
+    design, not bugs to work around further.
+
+    Orders are processed in ascending `order.id` order as a deterministic
+    stand-in for the original enqueue order (which is not recoverable
+    either). An order whose linked sample no longer exists is skipped
+    quietly (no console I/O happens here -- this runs at startup before
+    any screen is wired up).
+    """
+    producing_orders = sorted(
+        (order for order in order_repository.list_all() if order.status == STATUS_PRODUCING),
+        key=lambda order: order.id,
+    )
+
+    for order in producing_orders:
+        sample = sample_repository.find(order.sample_id)
+        if sample is None:
+            continue
+
+        shortfall = max(0, calculate_shortfall(order.quantity, sample.stock))
+        actual_production = calculate_actual_production(shortfall, sample.yield_rate)
+        total_time = calculate_total_time(sample.avg_production_time, actual_production)
+
+        production_queue.enqueue(
+            ProductionQueueItem(
+                order_id=order.id,
+                sample_id=sample.id,
+                quantity=order.quantity,
+                shortfall=shortfall,
+                actual_production=actual_production,
+                total_time=total_time,
+            )
+        )

@@ -30,7 +30,7 @@ def render_search_guide() -> str:
 
 _ORDER_MENU_LINES = (
     "1. 주문 접수",
-    "2. 접수된 주문 목록",
+    "2. 접수된 주문 목록 (RESERVED/PRODUCING)",
     "3. 주문 승인",
     "4. 주문 거절",
     "5. 종료",
@@ -40,8 +40,9 @@ _ORDER_MENU_LINES = (
 def render_order_menu() -> str:
     """Return the full order menu text, ending in a prompt.
 
-    Phase 4 adds approval/rejection and the RESERVED-only listing on top of
-    Phase 3's intake; production-line/shipping/monitoring are later phases.
+    Phase 4 adds approval/rejection and the RESERVED+PRODUCING listing on
+    top of Phase 3's intake; production-line/shipping/monitoring are later
+    phases.
     """
     header = "----- 주문 (접수/승인/거절) -----"
     body = "\n".join(_ORDER_MENU_LINES)

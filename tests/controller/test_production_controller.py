@@ -237,6 +237,133 @@ def test_complete_production_dequeues_front_item_only(tmp_path):
     assert remaining.order_id == order_b.id
 
 
+def test_drain_ready_items_completes_ready_front_item_directly(tmp_path):
+    # Core unit-level proof of the new auto-drain behavior: calling
+    # drain_ready_items() directly (not through run_once()/choice "3")
+    # completes a ready item and returns a non-empty message list.
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, [], queue=queue)
+    sample, order = make_producing_order(sample_repo, order_repo, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0)
+    queue.enqueue(
+        ProductionQueueItem(
+            order_id=order.id, sample_id=sample.id, quantity=10, shortfall=7, actual_production=14, total_time=28.0
+        )
+    )
+    clock.advance(28.0)
+
+    messages = controller.drain_ready_items()
+
+    assert len(messages) == 1
+    assert "CONFIRMED" in messages[0]
+    updated_order = order_repo.find(order.id)
+    assert updated_order.status == "CONFIRMED"
+    updated_sample = sample_repo.find(sample.id)
+    assert updated_sample.stock == 3 + 14
+    assert len(queue) == 0
+
+
+def test_drain_ready_items_completes_multiple_items_ready_in_one_call(tmp_path):
+    # Per the queue's real timer semantics (single production line): the
+    # second item's `started_at` is only stamped -- to the *current* clock
+    # reading -- once the first item is dequeued (see `ProductionQueue.
+    # dequeue`), so it can only *already* be ready at that same instant if
+    # its own total_time is 0.0 (nothing left to produce for it, e.g. its
+    # shortfall was already fully covered by stock -- a real, unforced case;
+    # see test_production_queue.py's "clamps shortfall to zero" test for the
+    # same total_time=0.0 scenario). That is the one faithful way two items
+    # can both complete within a single drain_ready_items() call without a
+    # fake clock ticking forward *during* the call (which no clock here does).
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, [], queue=queue)
+    sample_a, order_a = make_producing_order(
+        sample_repo, order_repo, stock=0, quantity=5, yield_rate=1.0, avg_production_time=1.0, sample_id=1
+    )
+    sample_b, order_b = make_producing_order(
+        sample_repo, order_repo, stock=5, quantity=5, yield_rate=1.0, avg_production_time=1.0, sample_id=2
+    )
+    queue.enqueue(
+        ProductionQueueItem(order_id=order_a.id, sample_id=sample_a.id, quantity=5, shortfall=5, actual_production=5, total_time=5.0)
+    )
+    # order_b's stock already covers its quantity -> shortfall/actual_production/
+    # total_time are all 0 (mirrors rebuild_production_queue's clamping case).
+    queue.enqueue(
+        ProductionQueueItem(order_id=order_b.id, sample_id=sample_b.id, quantity=5, shortfall=0, actual_production=0, total_time=0.0)
+    )
+    clock.advance(5.0)  # item A ready; item B's timer hasn't started yet, but needs 0.0 more once it has
+
+    messages = controller.drain_ready_items()
+
+    assert len(messages) == 2
+    assert order_repo.find(order_a.id).status == "CONFIRMED"
+    assert order_repo.find(order_b.id).status == "CONFIRMED"
+    updated_sample_a = sample_repo.find(sample_a.id)
+    updated_sample_b = sample_repo.find(sample_b.id)
+    assert updated_sample_a.stock == 5  # 0 + actual_production(5)
+    assert updated_sample_b.stock == 5  # 5 + actual_production(0), unchanged
+    assert len(queue) == 0
+
+
+def test_drain_ready_items_on_empty_queue_returns_empty_list_no_state_change(tmp_path):
+    controller, console, sample_repo, order_repo, queue = build_controller(tmp_path, [])
+
+    messages = controller.drain_ready_items()
+
+    assert messages == []
+    assert len(queue) == 0
+
+
+def test_drain_ready_items_when_front_not_ready_returns_empty_list_no_state_change(tmp_path):
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, [], queue=queue)
+    sample, order = make_producing_order(sample_repo, order_repo, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0)
+    queue.enqueue(
+        ProductionQueueItem(
+            order_id=order.id, sample_id=sample.id, quantity=10, shortfall=7, actual_production=14, total_time=28.0
+        )
+    )
+    clock.advance(10.0)  # not enough yet
+
+    messages = controller.drain_ready_items()
+
+    assert messages == []
+    updated_order = order_repo.find(order.id)
+    assert updated_order.status == "PRODUCING"
+    assert len(queue) == 1
+
+
+def test_run_once_auto_drains_ready_item_before_menu_choice_is_consumed(tmp_path):
+    # run_once() now drains at the very top, before the menu is shown or the
+    # choice is read -- so completion happens regardless of which choice is
+    # fed. Feeding a harmless choice ("2", list queue) proves the transition
+    # was already done by the auto-drain, not by any menu action.
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["2"], queue=queue)
+    sample, order = make_producing_order(sample_repo, order_repo, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0)
+    queue.enqueue(
+        ProductionQueueItem(
+            order_id=order.id, sample_id=sample.id, quantity=10, shortfall=7, actual_production=14, total_time=28.0
+        )
+    )
+    clock.advance(28.0)
+
+    still_running = controller.run_once()
+
+    assert still_running is True
+    updated_order = order_repo.find(order.id)
+    assert updated_order.status == "CONFIRMED"
+    updated_sample = sample_repo.find(sample.id)
+    assert updated_sample.stock == 3 + 14
+    assert len(queue) == 0
+    assert "CONFIRMED" in console.printed_text()
+    # confirms the message came from the auto-drain, printed before the menu
+    printed = console.printed_text()
+    assert printed.index("CONFIRMED") < printed.index("생산 라인")
+
+
 def test_exit_option_stops_the_loop(tmp_path):
     controller, console, _, _, _ = build_controller(tmp_path, ["4"])
 

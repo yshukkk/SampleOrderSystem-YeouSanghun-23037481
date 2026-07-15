@@ -1,8 +1,20 @@
 """Controller for the Order console screen: intake + approval/rejection.
 
 Phase 3 scope was intake only. Phase 4 adds the "접수된 주문 목록"
-(RESERVED-only) listing and the approve/reject actions from PRD "3. 주문
-승인/거절":
+listing and the approve/reject actions from PRD "3. 주문 승인/거절".
+
+The listing was later broadened to show RESERVED **and** PRODUCING orders
+(instead of RESERVED-only): a PRODUCING order is otherwise invisible after
+a process restart, since `ProductionQueue` is in-memory only and is
+rebuilt empty on startup while `orders.json` still correctly says
+PRODUCING. Sourcing this listing fresh from `OrderRepository.list_all()`
+(re-read from disk every call) rather than from the in-memory queue means
+a PRODUCING order stays visible here regardless of whether it also
+happens to be sitting in the queue. CONFIRMED/RELEASED/REJECTED orders are
+still excluded -- this listing is only for orders that are neither
+finished nor yet shippable. The approve/reject actions themselves are
+unchanged -- they still only operate on RESERVED orders via
+`order_model.approve`/`reject`'s transition guards.
 
 - Approve: RESERVED order + stock >= quantity -> immediate CONFIRMED (no
   production queue entry). RESERVED order + stock < quantity -> PRODUCING,
@@ -65,7 +77,7 @@ class OrderController:
         self.production_queue = production_queue if production_queue is not None else ProductionQueue()
         self._actions = {
             "1": self._intake_order,
-            "2": self._list_reserved_orders,
+            "2": self._list_pending_orders,
             "3": self._approve_order,
             "4": self._reject_order,
         }
@@ -115,13 +127,16 @@ class OrderController:
             INTAKE_SUCCESS_MESSAGE.format(order_id=order.id, status=order.status)
         )
 
-    def _list_reserved_orders(self) -> None:
-        reserved = [
+    def _list_pending_orders(self) -> None:
+        # RESERVED + PRODUCING only -- read fresh from the repository (not
+        # the in-memory production_queue) so a PRODUCING order stays
+        # visible here even after a restart wipes the in-memory queue.
+        pending = [
             order
             for order in self._order_repository.list_all()
-            if order.status == order_model.STATUS_RESERVED
+            if order.status in (order_model.STATUS_RESERVED, order_model.STATUS_PRODUCING)
         ]
-        self._write(tables.render_order_table(reserved))
+        self._write(tables.render_order_table(pending))
 
     def _approve_order(self) -> None:
         self._write(menus.render_approval_guide())

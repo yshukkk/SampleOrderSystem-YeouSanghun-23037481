@@ -20,7 +20,7 @@ from sampleordersystem.controller.sample_controller import SampleController
 from sampleordersystem.controller.shipping_controller import ShippingController
 from sampleordersystem.model import order as order_model
 from sampleordersystem.model.order import OrderRepository
-from sampleordersystem.model.production_queue import ProductionQueue
+from sampleordersystem.model.production_queue import ProductionQueue, rebuild_production_queue
 from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.persistence import JsonRepository
 from sampleordersystem.view import menus, tables
@@ -60,6 +60,14 @@ def run() -> None:
     # visible in the other within this process run (the queue itself is
     # in-memory only, not persisted to JSON).
     production_queue = ProductionQueue()
+    # Best-effort restore: any order left PRODUCING by a previous process run
+    # is otherwise stuck forever (orders.json still says PRODUCING, but the
+    # in-memory queue that could complete it is gone). Recomputes
+    # shortfall/실생산량/총생산시간 from the sample's *current* stock and
+    # restarts that item's production timer from zero -- see
+    # `rebuild_production_queue`'s docstring for the full set of accepted
+    # limitations of this reconstruction.
+    rebuild_production_queue(order_repository, sample_repository, production_queue)
     sample_controller = SampleController(sample_repository)
     order_controller = OrderController(order_repository, sample_repository, production_queue=production_queue)
     production_controller = ProductionController(order_repository, sample_repository, production_queue)
@@ -68,6 +76,17 @@ def run() -> None:
 
     keep_going = True
     while keep_going:
+        # Second auto-drain poll point (the first is at the top of
+        # `ProductionController.run_once()`): this app is synchronous and
+        # single-threaded with no background thread/timer, so a ready
+        # production item can only actually complete at a point the code
+        # regains control. Draining here too means completion happens as
+        # soon as control returns to the main menu, even if the user was
+        # bouncing between 시료/주문/출고/모니터링 sub-menus and never
+        # entered 생산 라인 at all.
+        for message in production_controller.drain_ready_items():
+            print(message)
+
         summary = render_summary(
             sample_repository, order_repository, len(production_queue)
         )

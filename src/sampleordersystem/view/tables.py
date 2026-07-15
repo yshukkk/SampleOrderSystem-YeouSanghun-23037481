@@ -44,9 +44,10 @@ def render_sample_table(samples: list[Sample]) -> str:
 def render_order_table(orders: list[Order]) -> str:
     """Render a list of orders as a simple table, or a placeholder message.
 
-    Used by "접수된 주문 목록" (RESERVED-only, filtered by the caller before
-    this function ever sees the list -- this function itself renders
-    whatever list it is given, with no status filtering of its own).
+    Used by "접수된 주문 목록" (RESERVED+PRODUCING, filtered by the caller
+    before this function ever sees the list -- this function itself renders
+    whatever list it is given, with no status filtering of its own) and by
+    the shipping screen's CONFIRMED-only listing.
     """
     if not orders:
         return EMPTY_ORDER_LIST_MESSAGE

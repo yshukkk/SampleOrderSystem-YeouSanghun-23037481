@@ -1,8 +1,11 @@
 """Integration tests for OrderController -- driven entirely through fakes.
 
-Phase 3 covered order intake. Phase 4 adds the RESERVED-only listing and
-the approve/reject actions (PRD "3. 주문 승인/거절") plus the production
-queue they feed on the insufficient-stock branch.
+Phase 3 covered order intake. Phase 4 adds the RESERVED+PRODUCING listing
+and the approve/reject actions (PRD "3. 주문 승인/거절") plus the
+production queue they feed on the insufficient-stock branch. The listing
+was broadened from RESERVED-only to RESERVED+PRODUCING so a PRODUCING
+order stays visible after a restart wipes the in-memory production queue
+(see `test_list_pending_orders_includes_producing_even_with_empty_queue`).
 """
 
 from sampleordersystem.controller.order_controller import OrderController
@@ -127,12 +130,19 @@ def make_sample_and_order(tmp_path, *, stock, quantity, yield_rate=0.5, avg_prod
     return sample_repo, order_repo, sample, order
 
 
-def test_list_reserved_orders_excludes_non_reserved(tmp_path):
+def test_list_pending_orders_includes_reserved_and_producing_excludes_others(tmp_path):
     sample_repo, order_repo, sample, reserved_order = make_sample_and_order(
         tmp_path, stock=100, quantity=5
     )
+    producing_order = order_repo.intake(sample_id=sample.id, customer_name="박영희", quantity=2)
+    order_repo.update_status(producing_order.id, "PRODUCING")
     confirmed_order = order_repo.intake(sample_id=sample.id, customer_name="김철수", quantity=1)
     order_repo.update_status(confirmed_order.id, "CONFIRMED")
+    released_order = order_repo.intake(sample_id=sample.id, customer_name="이민수", quantity=1)
+    order_repo.update_status(released_order.id, "CONFIRMED")
+    order_repo.update_status(released_order.id, "RELEASED")
+    rejected_order = order_repo.intake(sample_id=sample.id, customer_name="최지우", quantity=1)
+    order_repo.update_status(rejected_order.id, "REJECTED")
 
     controller, console, _, _ = build_controller(
         tmp_path, ["2"], sample_repository=sample_repo, order_repository=order_repo
@@ -141,9 +151,33 @@ def test_list_reserved_orders_excludes_non_reserved(tmp_path):
     controller.run_once()
 
     printed = console.printed_text()
-    assert str(reserved_order.id) in printed
     assert "홍길동" in printed
+    assert "박영희" in printed
     assert "김철수" not in printed
+    assert "이민수" not in printed
+    assert "최지우" not in printed
+
+
+def test_list_pending_orders_includes_producing_even_with_empty_queue(tmp_path):
+    # Simulates a restart: orders.json still has a PRODUCING order, but the
+    # in-memory ProductionQueue is freshly built and empty (the order was
+    # never enqueued through the normal approve-flow in this test at all).
+    # The listing must not depend on the in-memory queue in any way.
+    sample_repo, order_repo, sample, _ = make_sample_and_order(tmp_path, stock=0, quantity=5)
+    producing_order = order_repo.intake(sample_id=sample.id, customer_name="복원됨", quantity=3)
+    order_repo.update_status(producing_order.id, "PRODUCING")
+
+    controller, console, _, _ = build_controller(
+        tmp_path, ["2"], sample_repository=sample_repo, order_repository=order_repo
+    )
+    assert len(controller.production_queue) == 0
+
+    controller.run_once()
+
+    printed = console.printed_text()
+    assert str(producing_order.id) in printed
+    assert "복원됨" in printed
+    assert "PRODUCING" in printed
 
 
 def test_approve_with_sufficient_stock_confirms_immediately_no_queue_entry(tmp_path):
