@@ -4,9 +4,11 @@ Every function here is a plain function of its arguments -- no printing,
 no state, no decisions about *what* to show, only *how* to render it.
 """
 
+from sampleordersystem.model.order import Order
 from sampleordersystem.model.sample import Sample
 
 EMPTY_SAMPLE_LIST_MESSAGE = "등록된 시료가 없습니다."
+EMPTY_ORDER_LIST_MESSAGE = "표시할 주문이 없습니다."
 
 
 def render_sample_table(samples: list[Sample]) -> str:
@@ -19,6 +21,25 @@ def render_sample_table(samples: list[Sample]) -> str:
         rows.append(
             f"{sample.id} | {sample.name} | {sample.avg_production_time} | "
             f"{sample.yield_rate} | {sample.stock}"
+        )
+    return "\n".join(rows)
+
+
+def render_order_table(orders: list[Order]) -> str:
+    """Render a list of orders as a simple table, or a placeholder message.
+
+    Used by "접수된 주문 목록" (RESERVED-only, filtered by the caller before
+    this function ever sees the list -- this function itself renders
+    whatever list it is given, with no status filtering of its own).
+    """
+    if not orders:
+        return EMPTY_ORDER_LIST_MESSAGE
+
+    rows = ["ID | 시료ID | 고객명 | 수량 | 상태", "-------------------------------------"]
+    for order in orders:
+        rows.append(
+            f"{order.id} | {order.sample_id} | {order.customer_name} | "
+            f"{order.quantity} | {order.status}"
         )
     return "\n".join(rows)
 

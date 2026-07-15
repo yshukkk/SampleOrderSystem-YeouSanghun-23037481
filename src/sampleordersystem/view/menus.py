@@ -30,18 +30,32 @@ def render_search_guide() -> str:
 
 _ORDER_MENU_LINES = (
     "1. 주문 접수",
-    "2. 종료",
+    "2. 접수된 주문 목록",
+    "3. 주문 승인",
+    "4. 주문 거절",
+    "5. 종료",
 )
 
 
 def render_order_menu() -> str:
-    """Return the full order-intake menu text, ending in a prompt.
+    """Return the full order menu text, ending in a prompt.
 
-    Phase 3 only offers intake; approval/rejection are later phases.
+    Phase 4 adds approval/rejection and the RESERVED-only listing on top of
+    Phase 3's intake; production-line/shipping/monitoring are later phases.
     """
-    header = "----- 주문 (접수) -----"
+    header = "----- 주문 (접수/승인/거절) -----"
     body = "\n".join(_ORDER_MENU_LINES)
     return f"{header}\n{body}\n번호를 선택하세요: "
+
+
+def render_approval_guide() -> str:
+    """Return the input-format guide shown just before reading an order id to approve."""
+    return "(승인할 주문 번호를 입력하세요)"
+
+
+def render_rejection_guide() -> str:
+    """Return the input-format guide shown just before reading an order id to reject."""
+    return "(거절할 주문 번호를 입력하세요)"
 
 
 def render_main_menu(summary: str) -> str:
@@ -50,7 +64,7 @@ def render_main_menu(summary: str) -> str:
     body = "\n".join(
         (
             "1. 시료 관리",
-            "2. 주문 (접수)",
+            "2. 주문 (접수/승인/거절)",
             "3. 종료",
         )
     )

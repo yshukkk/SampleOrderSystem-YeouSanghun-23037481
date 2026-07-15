@@ -1,7 +1,8 @@
 """Integration tests for OrderController -- driven entirely through fakes.
 
-Phase 3 scope only: order intake. Approval/rejection are later phases and
-have no controller surface to test yet.
+Phase 3 covered order intake. Phase 4 adds the RESERVED-only listing and
+the approve/reject actions (PRD "3. 주문 승인/거절") plus the production
+queue they feed on the insufficient-stock branch.
 """
 
 from sampleordersystem.controller.order_controller import OrderController
@@ -80,7 +81,8 @@ def test_intake_with_invalid_sample_id_number_reports_error(tmp_path):
 
 
 def test_exit_option_stops_the_loop(tmp_path):
-    controller, console, _, _ = build_controller(tmp_path, ["2"])
+    # Phase 4 added approve/reject/list options, pushing exit from "2" to "5".
+    controller, console, _, _ = build_controller(tmp_path, ["5"])
 
     still_running = controller.run_once()
 
@@ -95,3 +97,148 @@ def test_unrecognized_choice_reports_an_error_and_keeps_running(tmp_path):
 
     assert still_running is True
     assert "잘못된" in console.printed_text()
+
+
+def make_sample_and_order(tmp_path, *, stock, quantity, yield_rate=0.5, avg_production_time=2.0):
+    """Build repos with one sample (given stock) and one RESERVED order for it."""
+    sample_json_repo = JsonRepository(tmp_path / "samples.json")
+    sample_repo = SampleRepository(sample_json_repo)
+    order_repo = OrderRepository(JsonRepository(tmp_path / "orders.json"))
+    sample = sample_repo.register(
+        id=1, name="Wafer-A", avg_production_time=avg_production_time, yield_rate=yield_rate
+    )
+    # Directly bump stock past the always-0 initial value -- there is no
+    # public "adjust stock" API yet (that belongs to Phase 5's production
+    # completion / Phase 6's shipping), so tests reach into the underlying
+    # JsonRepository the same way a future phase's stock-crediting code
+    # would call `update(id, stock=...)`.
+    sample_json_repo.update(sample.id, stock=stock)
+    sample = sample_repo.find(sample.id)
+    order = order_repo.intake(sample_id=sample.id, customer_name="홍길동", quantity=quantity)
+    return sample_repo, order_repo, sample, order
+
+
+def test_list_reserved_orders_excludes_non_reserved(tmp_path):
+    sample_repo, order_repo, sample, reserved_order = make_sample_and_order(
+        tmp_path, stock=100, quantity=5
+    )
+    confirmed_order = order_repo.intake(sample_id=sample.id, customer_name="김철수", quantity=1)
+    order_repo.update_status(confirmed_order.id, "CONFIRMED")
+
+    controller, console, _, _ = build_controller(
+        tmp_path, ["2"], sample_repository=sample_repo, order_repository=order_repo
+    )
+
+    controller.run_once()
+
+    printed = console.printed_text()
+    assert str(reserved_order.id) in printed
+    assert "홍길동" in printed
+    assert "김철수" not in printed
+
+
+def test_approve_with_sufficient_stock_confirms_immediately_no_queue_entry(tmp_path):
+    sample_repo, order_repo, sample, order = make_sample_and_order(tmp_path, stock=10, quantity=5)
+    controller, console, _, _ = build_controller(
+        tmp_path, ["3", str(order.id)], sample_repository=sample_repo, order_repository=order_repo
+    )
+
+    controller.run_once()
+
+    updated = order_repo.find(order.id)
+    assert updated.status == "CONFIRMED"
+    assert len(controller.production_queue) == 0
+    assert "CONFIRMED" in console.printed_text()
+
+
+def test_approve_with_stock_exactly_equal_to_quantity_confirms_immediately(tmp_path):
+    # Boundary: stock == quantity must go to CONFIRMED, not PRODUCING.
+    sample_repo, order_repo, sample, order = make_sample_and_order(tmp_path, stock=5, quantity=5)
+    controller, _, _, _ = build_controller(
+        tmp_path, ["3", str(order.id)], sample_repository=sample_repo, order_repository=order_repo
+    )
+
+    controller.run_once()
+
+    updated = order_repo.find(order.id)
+    assert updated.status == "CONFIRMED"
+    assert len(controller.production_queue) == 0
+
+
+def test_approve_with_insufficient_stock_producing_and_enqueues_correct_numbers(tmp_path):
+    # quantity=10, stock=3 -> shortfall=7; yield_rate=0.5 -> ceil(7/0.5)=14;
+    # avg_production_time=2.0 -> total_time=28.0
+    sample_repo, order_repo, sample, order = make_sample_and_order(
+        tmp_path, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0
+    )
+    controller, console, _, _ = build_controller(
+        tmp_path, ["3", str(order.id)], sample_repository=sample_repo, order_repository=order_repo
+    )
+
+    controller.run_once()
+
+    updated = order_repo.find(order.id)
+    assert updated.status == "PRODUCING"
+    assert len(controller.production_queue) == 1
+    queued = controller.production_queue.peek()
+    assert queued.order_id == order.id
+    assert queued.sample_id == sample.id
+    assert queued.quantity == 10
+    assert queued.shortfall == 7
+    assert queued.actual_production == 14
+    assert queued.total_time == 28.0
+    assert "PRODUCING" in console.printed_text()
+
+
+def test_reject_transitions_reserved_order_to_rejected(tmp_path):
+    sample_repo, order_repo, sample, order = make_sample_and_order(tmp_path, stock=0, quantity=1)
+    controller, console, _, _ = build_controller(
+        tmp_path, ["4", str(order.id)], sample_repository=sample_repo, order_repository=order_repo
+    )
+
+    controller.run_once()
+
+    updated = order_repo.find(order.id)
+    assert updated.status == "REJECTED"
+    assert "거절" in console.printed_text()
+
+
+def test_approve_already_confirmed_order_reports_error_not_crash(tmp_path):
+    sample_repo, order_repo, sample, order = make_sample_and_order(tmp_path, stock=10, quantity=5)
+    order_repo.update_status(order.id, "CONFIRMED")
+
+    controller, console, _, _ = build_controller(
+        tmp_path, ["3", str(order.id)], sample_repository=sample_repo, order_repository=order_repo
+    )
+
+    still_running = controller.run_once()
+
+    assert still_running is True
+    updated = order_repo.find(order.id)
+    assert updated.status == "CONFIRMED"
+    assert "허용되지 않은" in console.printed_text()
+
+
+def test_reject_already_confirmed_order_reports_error_not_crash(tmp_path):
+    sample_repo, order_repo, sample, order = make_sample_and_order(tmp_path, stock=10, quantity=5)
+    order_repo.update_status(order.id, "CONFIRMED")
+
+    controller, console, _, _ = build_controller(
+        tmp_path, ["4", str(order.id)], sample_repository=sample_repo, order_repository=order_repo
+    )
+
+    still_running = controller.run_once()
+
+    assert still_running is True
+    updated = order_repo.find(order.id)
+    assert updated.status == "CONFIRMED"
+    assert "허용되지 않은" in console.printed_text()
+
+
+def test_approve_unknown_order_id_reports_error_not_crash(tmp_path):
+    controller, console, _, _ = build_controller(tmp_path, ["3", "999"])
+
+    still_running = controller.run_once()
+
+    assert still_running is True
+    assert "존재하지 않는" in console.printed_text()

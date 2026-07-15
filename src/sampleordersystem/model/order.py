@@ -9,10 +9,9 @@ This module also defines the *full* state-transition rule set from PRD.md's
 state machine (RESERVED -> REJECTED/CONFIRMED/PRODUCING, PRODUCING ->
 CONFIRMED, CONFIRMED -> RELEASED) as pure functions with no persistence and
 no console I/O, so the rules themselves can be unit-tested in isolation.
-Per PLAN.md Phase 3, none of these transition functions are wired into
-`OrderController` or the main menu yet -- only order intake (RESERVED
-creation) is exposed. Approval/rejection/production/shipping wiring is
-later phases' job.
+As of Phase 4, `OrderController` wires `reject()`/`approve()` (RESERVED ->
+REJECTED/CONFIRMED/PRODUCING); `complete_production()`/`release()` remain
+unwired until Phase 5/6.
 """
 
 from __future__ import annotations
@@ -75,6 +74,20 @@ class OrderRepository:
         if record is None:
             return None
         return Order.from_record(record)
+
+    def update_status(self, order_id: int, status: str) -> Order | None:
+        """Persist a new status for an existing order.
+
+        Returns the updated `Order`, or `None` if `order_id` does not exist
+        (caller decides how to report that -- in practice the controller
+        already looked the order up via `find()` before computing the new
+        status, so this should only fail if the order was deleted in
+        between, which nothing in this system currently does).
+        """
+        updated = self._repository.update(order_id, status=status)
+        if not updated:
+            return None
+        return self.find(order_id)
 
 
 # --- Pure state-transition rules (PRD state machine) ------------------------

@@ -1,13 +1,14 @@
 """Entry point: `python -m sampleordersystem`.
 
 Wires the real `input`/`print` builtins into the sample-management and
-order-intake controllers and runs the main menu loop: show a summary +
-menu, route to a sub-menu until it signals exit, repeat until the user
-chooses to exit the whole application.
+order controllers and runs the main menu loop: show a summary + menu,
+route to a sub-menu until it signals exit, repeat until the user chooses
+to exit the whole application.
 
-Only sample management (Phase 2) and order intake (Phase 3) exist as
-sub-menus so far -- approval/rejection, production, shipping, and
-monitoring are later phases and are not routed here yet.
+Sample management (Phase 2) and order intake/approval/rejection + the
+production queue (Phase 3/4) exist as sub-menus so far -- the production
+line's auto-completion screen, shipping, and monitoring are later phases
+and are not routed here yet.
 """
 
 from pathlib import Path
@@ -26,12 +27,12 @@ ORDERS_PATH = DATA_DIR / "orders.json"
 EXIT_MESSAGE = "SampleOrderSystem을 종료합니다."
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 
-# Production queue doesn't exist yet (Phase 4+), so the backlog count is
-# honestly reported as 0 rather than inventing data this phase can't have.
-PRODUCTION_QUEUE_WAITING_PLACEHOLDER = 0
 
-
-def render_summary(sample_repository: SampleRepository, order_repository: OrderRepository) -> str:
+def render_summary(
+    sample_repository: SampleRepository,
+    order_repository: OrderRepository,
+    production_queue_waiting: int,
+) -> str:
     samples = sample_repository.list_all()
     orders = order_repository.list_all()
     total_stock = sum(sample.stock for sample in samples)
@@ -39,7 +40,7 @@ def render_summary(sample_repository: SampleRepository, order_repository: OrderR
         sample_count=len(samples),
         total_stock=total_stock,
         order_count=len(orders),
-        production_queue_waiting=PRODUCTION_QUEUE_WAITING_PLACEHOLDER,
+        production_queue_waiting=production_queue_waiting,
     )
 
 
@@ -51,7 +52,9 @@ def run() -> None:
 
     keep_going = True
     while keep_going:
-        summary = render_summary(sample_repository, order_repository)
+        summary = render_summary(
+            sample_repository, order_repository, len(order_controller.production_queue)
+        )
         print(menus.render_main_menu(summary))
         choice = input().strip()
 
