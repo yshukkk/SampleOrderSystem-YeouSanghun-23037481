@@ -5,17 +5,19 @@ order controllers and runs the main menu loop: show a summary + menu,
 route to a sub-menu until it signals exit, repeat until the user chooses
 to exit the whole application.
 
-Sample management (Phase 2) and order intake/approval/rejection + the
-production queue (Phase 3/4) exist as sub-menus so far -- the production
-line's auto-completion screen, shipping, and monitoring are later phases
-and are not routed here yet.
+Sample management (Phase 2), order intake/approval/rejection + the
+production queue (Phase 3/4), and the production line's auto-completion
+screen (Phase 5) exist as sub-menus so far -- shipping and monitoring are
+later phases and are not routed here yet.
 """
 
 from pathlib import Path
 
 from sampleordersystem.controller.order_controller import OrderController
+from sampleordersystem.controller.production_controller import ProductionController
 from sampleordersystem.controller.sample_controller import SampleController
 from sampleordersystem.model.order import OrderRepository
+from sampleordersystem.model.production_queue import ProductionQueue
 from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.persistence import JsonRepository
 from sampleordersystem.view import menus, tables
@@ -47,13 +49,20 @@ def render_summary(
 def run() -> None:
     sample_repository = SampleRepository(JsonRepository(SAMPLES_PATH))
     order_repository = OrderRepository(JsonRepository(ORDERS_PATH))
+    # One shared queue instance: OrderController's approval branch enqueues
+    # onto it, ProductionController drains it -- both must reference the
+    # same object so approving an order in one sub-menu is immediately
+    # visible in the other within this process run (the queue itself is
+    # in-memory only, not persisted to JSON).
+    production_queue = ProductionQueue()
     sample_controller = SampleController(sample_repository)
-    order_controller = OrderController(order_repository, sample_repository)
+    order_controller = OrderController(order_repository, sample_repository, production_queue=production_queue)
+    production_controller = ProductionController(order_repository, sample_repository, production_queue)
 
     keep_going = True
     while keep_going:
         summary = render_summary(
-            sample_repository, order_repository, len(order_controller.production_queue)
+            sample_repository, order_repository, len(production_queue)
         )
         print(menus.render_main_menu(summary))
         choice = input().strip()
@@ -67,6 +76,10 @@ def run() -> None:
             while sub_running:
                 sub_running = order_controller.run_once()
         elif choice == "3":
+            sub_running = True
+            while sub_running:
+                sub_running = production_controller.run_once()
+        elif choice == "4":
             print(EXIT_MESSAGE)
             keep_going = False
         else:

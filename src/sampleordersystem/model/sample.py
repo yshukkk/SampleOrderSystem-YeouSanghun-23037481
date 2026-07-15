@@ -78,3 +78,18 @@ class SampleRepository:
         """Return every sample whose name contains `query` (case-insensitive)."""
         needle = query.lower()
         return [sample for sample in self.list_all() if needle in sample.name.lower()]
+
+    def add_stock(self, sample_id: int, amount: int) -> Sample | None:
+        """Increase `sample_id`'s stock by `amount` and persist it.
+
+        Used by production completion (Phase 5) to credit newly-produced
+        units back into stock. Returns the updated `Sample`, or `None` if
+        `sample_id` does not exist (caller decides how to report that).
+        """
+        sample = self.find(sample_id)
+        if sample is None:
+            return None
+        updated = self._repository.update(sample_id, stock=sample.stock + amount)
+        if not updated:
+            return None
+        return self.find(sample_id)

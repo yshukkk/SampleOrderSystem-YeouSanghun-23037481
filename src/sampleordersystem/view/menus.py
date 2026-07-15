@@ -63,6 +63,21 @@ def render_rejection_guide() -> str:
     return "(거절할 주문 번호를 입력하세요)"
 
 
+_PRODUCTION_MENU_LINES = (
+    "1. 생산 라인 현황",
+    "2. 대기 주문 확인",
+    "3. 생산 완료 처리",
+    "4. 종료",
+)
+
+
+def render_production_menu() -> str:
+    """Return the full production-line menu text, ending in a prompt."""
+    header = "----- 생산 라인 -----"
+    body = "\n".join(_PRODUCTION_MENU_LINES)
+    return f"{header}\n{body}\n번호를 선택하세요: "
+
+
 def render_main_menu(summary: str) -> str:
     """Return the full main-menu text (with a summary line), ending in a prompt."""
     header = "----- SampleOrderSystem 메인 메뉴 -----"
@@ -70,7 +85,8 @@ def render_main_menu(summary: str) -> str:
         (
             "1. 시료 관리",
             "2. 주문 (접수/승인/거절)",
-            "3. 종료",
+            "3. 생산 라인",
+            "4. 종료",
         )
     )
     return f"{header}\n{summary}\n{body}\n번호를 선택하세요: "

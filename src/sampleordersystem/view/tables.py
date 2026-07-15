@@ -5,10 +5,12 @@ no state, no decisions about *what* to show, only *how* to render it.
 """
 
 from sampleordersystem.model.order import Order
+from sampleordersystem.model.production_queue import ProductionQueueItem
 from sampleordersystem.model.sample import Sample
 
 EMPTY_SAMPLE_LIST_MESSAGE = "등록된 시료가 없습니다."
 EMPTY_ORDER_LIST_MESSAGE = "표시할 주문이 없습니다."
+EMPTY_PRODUCTION_QUEUE_MESSAGE = "생산 대기 중인 항목이 없습니다."
 
 
 def render_sample_table(samples: list[Sample]) -> str:
@@ -40,6 +42,27 @@ def render_order_table(orders: list[Order]) -> str:
         rows.append(
             f"{order.id} | {order.sample_id} | {order.customer_name} | "
             f"{order.quantity} | {order.status}"
+        )
+    return "\n".join(rows)
+
+
+def render_production_queue_table(items: list[ProductionQueueItem]) -> str:
+    """Render the production queue's contents, FIFO/enqueue order preserved.
+
+    `items` is expected to already be in FIFO order (front-of-queue first) --
+    this function does no sorting or filtering of its own, only rendering.
+    """
+    if not items:
+        return EMPTY_PRODUCTION_QUEUE_MESSAGE
+
+    rows = [
+        "주문번호 | 시료ID | 주문량 | 부족분 | 실생산량 | 총생산시간",
+        "-------------------------------------------------------",
+    ]
+    for item in items:
+        rows.append(
+            f"{item.order_id} | {item.sample_id} | {item.quantity} | "
+            f"{item.shortfall} | {item.actual_production} | {item.total_time}"
         )
     return "\n".join(rows)
 
