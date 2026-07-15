@@ -15,11 +15,17 @@ def render_sample_menu() -> str:
     """Return the full sample-management menu text, ending in a prompt."""
     header = "----- 시료 관리 -----"
     body = "\n".join(_MENU_LINES)
-    guide = (
-        "(시료 등록 입력 순서: ID -> 이름 -> 평균 생산시간 -> 수율)\n"
-        "(시료 검색 입력 형식: 'ID: <숫자>' 또는 '이름: <검색어>')"
-    )
-    return f"{header}\n{body}\n{guide}\n번호를 선택하세요: "
+    return f"{header}\n{body}\n번호를 선택하세요: "
+
+
+def render_registration_guide() -> str:
+    """Return the input-order guide line shown when registering a sample."""
+    return "(시료 등록 입력 순서: ID -> 이름 -> 평균 생산시간 -> 수율)"
+
+
+def render_search_guide() -> str:
+    """Return the input-format guide line shown when searching for samples."""
+    return "(시료 검색 입력 형식: 'ID: <숫자>' 또는 '이름: <검색어>')"
 
 
 _ORDER_MENU_LINES = (

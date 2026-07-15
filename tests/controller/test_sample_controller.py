@@ -48,6 +48,7 @@ def test_register_option_adds_a_new_sample_with_zero_stock(tmp_path):
     assert sample.stock == 0
     assert "등록" in console.printed_text()
     assert str(sample.id) in console.printed_text()
+    assert "시료 등록 입력 순서" in console.printed_text()
 
 
 def test_register_option_with_invalid_number_reports_error(tmp_path):
@@ -107,6 +108,7 @@ def test_search_option_finds_matching_samples_by_name(tmp_path):
 
     assert "Wafer-A" in console.printed_text()
     assert "Chip-B" not in console.printed_text()
+    assert "시료 검색 입력 형식" in console.printed_text()
 
 
 def test_search_option_with_no_name_match_shows_empty_message(tmp_path):
@@ -177,3 +179,12 @@ def test_unrecognized_choice_reports_an_error_and_keeps_running(tmp_path):
 
     assert still_running is True
     assert "잘못된" in console.printed_text()
+
+
+def test_bare_menu_display_does_not_show_register_or_search_guides(tmp_path):
+    controller, console = build_controller(tmp_path, ["4"])
+
+    controller.run_once()
+
+    assert "시료 등록 입력 순서" not in console.printed_text()
+    assert "시료 검색 입력 형식" not in console.printed_text()

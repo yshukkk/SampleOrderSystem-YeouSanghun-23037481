@@ -52,6 +52,7 @@ class SampleController:
         return True
 
     def _register_sample(self) -> None:
+        self._write(menus.render_registration_guide())
         id_raw = self._read().strip()
         name = self._read().strip()
         avg_production_time_raw = self._read().strip()
@@ -83,6 +84,7 @@ class SampleController:
         self._write(tables.render_sample_table(samples))
 
     def _search_samples(self) -> None:
+        self._write(menus.render_search_guide())
         raw = self._read().strip()
         label, sep, value = raw.partition(":")
         if not sep:

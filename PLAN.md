@@ -88,6 +88,8 @@ SampleOrderSystem/
 
 **완료 기준**: `pytest` 전체 통과. 아직 실행 진입점(`__main__.py`)은 없어도 됨(Phase 3에서 추가).
 
+**추후 확장(Phase 2에서 반영)**: PRD.md가 시료 등록에 "시료 ID"를 사용자 입력 항목으로 명시하고 있어, `JsonRepository`에 `create_with_id(record, record_id) -> dict | None` 메서드가 Phase 2에서 추가되었다. 기존 `create()`(자동 증가)는 그대로 유지되며 Order 등 다른 엔티티는 계속 자동 증가 방식을 쓴다. `create_with_id`는 중복 ID를 `None`으로 거부(기존 레코드 미변경)하고, 수동 지정된 id보다 `next_id`가 낮아지지 않도록(향후 자동 증가와 충돌 없게) 갱신한다.
+
 ---
 
 ## Phase 2 — 시료 관리 (Model + Controller + View, 메뉴 1개만)
@@ -95,31 +97,35 @@ SampleOrderSystem/
 **목표**: PRD "1. 시료 관리" 기능만 콘솔에서 동작하도록 만든다. 아직 주문/생산/출고/모니터링은 없다.
 
 **참조 PoC**:
-- `ConsoleMVC/src/consolemvc/model/item.py` — `Item`/`ItemStore` 대신 `Sample`/`SampleRepository`로 이름만 바꿔 CRUD 편의 메서드 패턴(등록 시 id 자동 부여, 목록/검색)을 참고. 단, 실제 저장은 Phase 1에서 만든 `JsonRepository` 위에 얹는다(`ConsoleMVC`의 in-memory 방식이 아니라 `DataPersistence` 방식).
+- `ConsoleMVC/src/consolemvc/model/item.py` — `Item`/`ItemStore` 대신 `Sample`/`SampleRepository`로 이름만 바꿔 CRUD 편의 메서드 패턴(목록/검색)을 참고. 단, ID는 `ConsoleMVC`처럼 자동 부여하지 않는다 — PRD가 "시료 ID"를 등록 입력 항목으로 명시하므로 사용자가 지정한 ID를 그대로 primary key로 사용한다(아래 참고). 실제 저장은 Phase 1에서 만든 `JsonRepository` 위에 얹는다(`ConsoleMVC`의 in-memory 방식이 아니라 `DataPersistence` 방식).
 - `ConsoleMVC/src/consolemvc/view/item_view.py` — `render_menu`/`render_items`류 순수 문자열 렌더링 함수 패턴을 `tables.py`/`menus.py`에 이식.
 - `ConsoleMVC/src/consolemvc/controller/item_controller.py` — `input_func`/`output_func` 주입 패턴, 메뉴 라우팅 구조를 `sample_controller.py`에 이식.
 
 **산출물** (Phase 1 위에 추가):
 ```
+  persistence/
+    json_repository.py    # create_with_id(record, record_id) -> dict | None 추가 (기존 create()는 그대로 유지)
   model/
     __init__.py
     sample.py              # Sample 엔티티 + SampleRepository(JsonRepository 기반 도메인 편의 메서드)
   view/
     __init__.py
     tables.py                # 시료 표 렌더링 (재고 포함)
-    menus.py                  # 시료 관리 하위 메뉴 문자열
+    menus.py                  # 시료 관리 하위 메뉴 문자열 + 등록/검색 액션별 안내 문구(render_registration_guide/render_search_guide)
   controller/
     __init__.py
     sample_controller.py     # 시료 등록/조회/검색
   tests/
+    persistence/test_json_repository.py  # create_with_id 케이스 추가
     model/test_sample_model.py
     controller/test_sample_controller.py
 ```
 
-- 시료 등록 시 재고 초기값 0 (PRD 명시, 별도 초기 재고 입력 없음).
-- 시료 검색은 이름 기준(부분/전체 일치는 PRD가 자유 — 최소 부분 문자열 포함 검색으로 구현).
+- **시료 등록**: 입력 순서는 정확히 **ID → 이름 → 평균 생산시간 → 수율**. ID는 사용자가 지정하며 실제 저장소의 primary key로 그대로 사용된다(자동 증가 아님). 이미 존재하는 ID로 등록을 시도하면 기존 레코드를 덮어쓰지 않고 오류 메시지로 거부한다. 재고 초기값은 항상 0(PRD 명시, 별도 초기 재고 입력 없음).
+- **시료 검색**: 한 줄 입력을 `ID: <숫자>`(정확한 ID 조회) 또는 `이름: <검색어>`(부분 문자열, 대소문자 무시)로 파싱해 분기한다. 그 외 형식(콜론 없음, 인식 불가 라벨)은 오류 메시지를 출력하고 크래시하지 않는다.
+- **안내 문구 표시 시점**: 등록/검색 입력 형식 안내 문구는 시료 관리 메뉴 화면 자체에는 표시하지 않고, 사용자가 해당 메뉴(등록/검색)를 선택한 직후 입력을 받기 직전에만 출력한다.
 
-**테스트**: `test_sample_controller.py` — 시료 등록(재고 0으로 시작), 목록 조회(재고 포함), 이름 검색. `test_sample_model.py` — `SampleRepository` CRUD가 `JsonRepository` 위에서 정확히 동작.
+**테스트**: `test_json_repository.py`(확장) — `create_with_id` 성공/중복 거부(원본 미변경)/next_id 전진(역행 없음). `test_sample_model.py` — 사용자 지정 ID로 등록(재고 0으로 시작), 중복 ID 등록 시 `None` 반환. `test_sample_controller.py` — 등록 입력 순서(ID 먼저), 중복 ID 오류 메시지, 목록 조회(재고 포함), `ID:`/`이름:` 검색 두 형식과 잘못된 형식의 오류 처리, 안내 문구가 메뉴 화면 자체가 아니라 액션 선택 직후에만 출력되는지.
 
 **완료 기준**: `pytest` 전체 통과. 이 시점에서 아직 `__main__.py`(전체 메인 메뉴)는 만들지 않아도 되지만, 원한다면 시료 관리만 단독 실행되는 임시 진입점으로 수동 확인 가능.
 
