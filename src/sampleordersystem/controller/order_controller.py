@@ -33,6 +33,9 @@ Follows the same injected `input_func`/`output_func` pattern as
 console.
 """
 
+from sampleordersystem.controller._menu_controller import MenuController
+from sampleordersystem.controller._order_lookup import ORDER_NOT_FOUND_MESSAGE, find_order_by_id
+from sampleordersystem.controller._parsing import INVALID_NUMBER_MESSAGE, parse_int
 from sampleordersystem.model import order as order_model
 from sampleordersystem.model.order import Order, OrderRepository
 from sampleordersystem.model.production_queue import (
@@ -46,11 +49,8 @@ from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.view import menus, tables
 
 UNKNOWN_SAMPLE_MESSAGE = "등록되지 않은 시료 ID입니다: {sample_id}"
-INVALID_NUMBER_MESSAGE = "숫자로 입력해야 합니다: {raw}"
-UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 EXIT_MESSAGE = "주문 메뉴에서 돌아갑니다."
 INTAKE_SUCCESS_MESSAGE = "주문이 접수되었습니다: ID={order_id} 상태={status}"
-ORDER_NOT_FOUND_MESSAGE = "존재하지 않는 주문 번호입니다: {order_id}"
 SAMPLE_NOT_FOUND_FOR_ORDER_MESSAGE = "주문에 연결된 시료를 찾을 수 없습니다: {sample_id}"
 APPROVE_SUCCESS_MESSAGE = "주문이 승인되었습니다: ID={order_id} 상태={status}"
 PRODUCTION_QUEUED_MESSAGE = (
@@ -60,7 +60,7 @@ PRODUCTION_QUEUED_MESSAGE = (
 REJECT_SUCCESS_MESSAGE = "주문이 거절되었습니다: ID={order_id}"
 
 
-class OrderController:
+class OrderController(MenuController):
     """Runs one menu round-trip per call to `run_once()`."""
 
     def __init__(
@@ -83,22 +83,14 @@ class OrderController:
             "4": self._reject_order,
         }
 
-    def run_once(self) -> bool:
-        """Show the menu, handle one choice, and report whether to continue."""
-        self._write(menus.render_order_menu())
-        choice = self._read().strip()
+    def _render_menu(self) -> str:
+        return menus.render_order_menu()
 
-        if choice == "5":
-            self._write(EXIT_MESSAGE)
-            return False
+    def _is_exit_choice(self, choice: str) -> bool:
+        return choice == "5"
 
-        action = self._actions.get(choice)
-        if action is None:
-            self._write(UNKNOWN_CHOICE_MESSAGE.format(choice=choice))
-            return True
-
-        action()
-        return True
+    def _exit_message(self) -> str:
+        return EXIT_MESSAGE
 
     def _intake_order(self) -> None:
         self._write(menus.render_intake_guide())
@@ -217,18 +209,7 @@ class OrderController:
         Reports (and returns None for) a non-numeric id or an unknown order
         id; otherwise returns the found `Order`.
         """
-        order_id = self._parse_int(self._read().strip())
-        if order_id is None:
-            return None
-        order = self._order_repository.find(order_id)
-        if order is None:
-            self._write(ORDER_NOT_FOUND_MESSAGE.format(order_id=order_id))
-            return None
-        return order
+        return find_order_by_id(self._read().strip(), self._order_repository, self._write)
 
     def _parse_int(self, raw: str) -> int | None:
-        try:
-            return int(raw)
-        except ValueError:
-            self._write(INVALID_NUMBER_MESSAGE.format(raw=raw))
-            return None
+        return parse_int(raw, self._write, INVALID_NUMBER_MESSAGE)

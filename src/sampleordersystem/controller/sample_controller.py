@@ -8,20 +8,20 @@ out through an injected `output_func`. Both hooks default to the real
 tests can swap in fakes to drive the whole loop without a console.
 """
 
+from sampleordersystem.controller._menu_controller import MenuController
+from sampleordersystem.controller._parsing import INVALID_NUMBER_MESSAGE, parse_float, parse_int
 from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.view import menus, tables
 
-INVALID_NUMBER_MESSAGE = "숫자로 입력해야 합니다: {raw}"
 INVALID_ID_MESSAGE = "ID는 정수로 입력해야 합니다: {raw}"
 DUPLICATE_ID_MESSAGE = "이미 사용 중인 ID입니다: {id}"
 INVALID_SEARCH_FORMAT_MESSAGE = (
     "검색 형식이 올바르지 않습니다. 'ID: <숫자>' 또는 '이름: <검색어>' 형식으로 입력하세요."
 )
-UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 EXIT_MESSAGE = "시료 관리에서 돌아갑니다."
 
 
-class SampleController:
+class SampleController(MenuController):
     """Runs one menu round-trip per call to `run_once()`."""
 
     def __init__(self, repository: SampleRepository, input_func=input, output_func=print):
@@ -34,22 +34,14 @@ class SampleController:
             "3": self._search_samples,
         }
 
-    def run_once(self) -> bool:
-        """Show the menu, handle one choice, and report whether to continue."""
-        self._write(menus.render_sample_menu())
-        choice = self._read().strip()
+    def _render_menu(self) -> str:
+        return menus.render_sample_menu()
 
-        if choice == "4":
-            self._write(EXIT_MESSAGE)
-            return False
+    def _is_exit_choice(self, choice: str) -> bool:
+        return choice == "4"
 
-        action = self._actions.get(choice)
-        if action is None:
-            self._write(UNKNOWN_CHOICE_MESSAGE.format(choice=choice))
-            return True
-
-        action()
-        return True
+    def _exit_message(self) -> str:
+        return EXIT_MESSAGE
 
     def _register_sample(self) -> None:
         self._write(menus.render_registration_guide())
@@ -107,15 +99,7 @@ class SampleController:
             self._write(INVALID_SEARCH_FORMAT_MESSAGE)
 
     def _parse_float(self, raw: str) -> float | None:
-        try:
-            return float(raw)
-        except ValueError:
-            self._write(INVALID_NUMBER_MESSAGE.format(raw=raw))
-            return None
+        return parse_float(raw, self._write, INVALID_NUMBER_MESSAGE)
 
     def _parse_int(self, raw: str) -> int | None:
-        try:
-            return int(raw)
-        except ValueError:
-            self._write(INVALID_ID_MESSAGE.format(raw=raw))
-            return None
+        return parse_int(raw, self._write, INVALID_ID_MESSAGE)

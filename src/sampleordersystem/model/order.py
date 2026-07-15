@@ -9,9 +9,11 @@ This module also defines the *full* state-transition rule set from PRD.md's
 state machine (RESERVED -> REJECTED/CONFIRMED/PRODUCING, PRODUCING ->
 CONFIRMED, CONFIRMED -> RELEASED) as pure functions with no persistence and
 no console I/O, so the rules themselves can be unit-tested in isolation.
-As of Phase 4, `OrderController` wires `reject()`/`approve()` (RESERVED ->
-REJECTED/CONFIRMED/PRODUCING); `complete_production()`/`release()` remain
-unwired until Phase 5/6.
+All four transition functions are now wired up to a controller:
+`reject()`/`approve()` (RESERVED -> REJECTED/CONFIRMED/PRODUCING) by
+`OrderController`, `complete_production()` (PRODUCING -> CONFIRMED) by
+`ProductionController`, and `release()` (CONFIRMED -> RELEASED) by
+`ShippingController`.
 """
 
 from __future__ import annotations
@@ -109,11 +111,11 @@ class OrderRepository:
 
 # --- Pure state-transition rules (PRD state machine) ------------------------
 #
-# These functions are not called from any controller or menu at this phase
-# (Phase 3 only exposes intake). They exist here because PLAN.md Phase 3
-# explicitly permits pre-building the full transition rule set on the model,
-# and expressing it as pure functions keeps it independently unit-testable
-# ahead of the controller wiring that later phases will add.
+# All four are wired up to a controller: reject()/approve() from
+# OrderController, complete_production() from ProductionController,
+# release() from ShippingController. Expressing them as pure functions here
+# (rather than inline in a controller) keeps them independently unit-testable
+# without console I/O.
 
 VALID_TRANSITIONS: dict[str, set[str]] = {
     STATUS_RESERVED: {STATUS_REJECTED, STATUS_CONFIRMED, STATUS_PRODUCING},

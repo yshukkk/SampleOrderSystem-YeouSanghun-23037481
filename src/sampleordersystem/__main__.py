@@ -13,6 +13,7 @@ as sub-menus.
 
 from pathlib import Path
 
+from sampleordersystem.controller._menu_controller import UNKNOWN_CHOICE_MESSAGE
 from sampleordersystem.controller.monitoring_controller import MonitoringController
 from sampleordersystem.controller.order_controller import OrderController
 from sampleordersystem.controller.production_controller import ProductionController
@@ -31,7 +32,6 @@ ORDERS_PATH = DATA_DIR / "orders.json"
 
 EXIT_MESSAGE = "SampleOrderSystem을 종료합니다."
 EOF_EXIT_MESSAGE = "입력이 종료되어 프로그램을 종료합니다."
-UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 
 
 _TERMINAL_ORDER_STATUSES = {order_model.STATUS_RELEASED, order_model.STATUS_REJECTED}

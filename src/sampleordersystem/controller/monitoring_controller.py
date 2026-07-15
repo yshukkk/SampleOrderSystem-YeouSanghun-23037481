@@ -28,13 +28,13 @@ priority order:
   - stock > 0, stock >= demand (including demand == 0) -> 여유
 """
 
+from sampleordersystem.controller._menu_controller import MenuController
 from sampleordersystem.model import order as order_model
 from sampleordersystem.model.order import OrderRepository
 from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.view import menus, tables
 from sampleordersystem.view.tables import StockStatusRow
 
-UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 EXIT_MESSAGE = "모니터링 메뉴에서 돌아갑니다."
 
 # Same "currently active" order-status grouping `__main__.py` uses for the
@@ -47,7 +47,7 @@ _ACTIVE_ORDER_STATUSES = {
 }
 
 
-class MonitoringController:
+class MonitoringController(MenuController):
     """Runs one menu round-trip per call to `run_once()`."""
 
     def __init__(
@@ -66,22 +66,14 @@ class MonitoringController:
             "2": self._show_stock_status,
         }
 
-    def run_once(self) -> bool:
-        """Show the menu, handle one choice, and report whether to continue."""
-        self._write(menus.render_monitoring_menu())
-        choice = self._read().strip()
+    def _render_menu(self) -> str:
+        return menus.render_monitoring_menu()
 
-        if choice == "3":
-            self._write(EXIT_MESSAGE)
-            return False
+    def _is_exit_choice(self, choice: str) -> bool:
+        return choice == "3"
 
-        action = self._actions.get(choice)
-        if action is None:
-            self._write(UNKNOWN_CHOICE_MESSAGE.format(choice=choice))
-            return True
-
-        action()
-        return True
+    def _exit_message(self) -> str:
+        return EXIT_MESSAGE
 
     def _show_order_status_counts(self) -> None:
         orders = self._order_repository.list_all()

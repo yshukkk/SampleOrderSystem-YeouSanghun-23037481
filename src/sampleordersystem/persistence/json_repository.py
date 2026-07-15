@@ -55,9 +55,8 @@ class JsonRepository:
         `create()` calls on the same file never collide with it.
         """
         data = self._load()
-        for record_row in data["records"]:
-            if record_row.get("id") == record_id:
-                return None
+        if self._find_record(data, record_id) is not None:
+            return None
         new_record = dict(record)
         new_record["id"] = record_id
         data["records"].append(new_record)
@@ -71,26 +70,44 @@ class JsonRepository:
 
     def find(self, record_id: int) -> dict | None:
         data = self._load()
+        return self._find_record(data, record_id)
+
+    def update(self, record_id: int, **fields) -> bool:
+        data = self._load()
+        index = self._find_index(data, record_id)
+        if index is None:
+            return False
+        data["records"][index].update(fields)
+        self._save(data)
+        return True
+
+    def delete(self, record_id: int) -> bool:
+        data = self._load()
+        index = self._find_index(data, record_id)
+        if index is None:
+            return False
+        del data["records"][index]
+        self._save(data)
+        return True
+
+    @staticmethod
+    def _find_record(data: dict, record_id: int) -> dict | None:
+        """Return the record with id `record_id` in `data["records"]`, or
+        `None` if none matches. Used by `find`/`create_with_id`, which only
+        ever need the record itself (an existence check or its contents),
+        never its position."""
         for record in data["records"]:
             if record.get("id") == record_id:
                 return record
         return None
 
-    def update(self, record_id: int, **fields) -> bool:
-        data = self._load()
-        for record in data["records"]:
+    @staticmethod
+    def _find_index(data: dict, record_id: int) -> int | None:
+        """Return the index of the record with id `record_id` in
+        `data["records"]`, or `None` if none matches. Used by `update`/
+        `delete`, which need the position to mutate/remove the record in
+        place."""
+        for index, record in enumerate(data["records"]):
             if record.get("id") == record_id:
-                record.update(fields)
-                self._save(data)
-                return True
-        return False
-
-    def delete(self, record_id: int) -> bool:
-        data = self._load()
-        records = data["records"]
-        for i, record in enumerate(records):
-            if record.get("id") == record_id:
-                del records[i]
-                self._save(data)
-                return True
-        return False
+                return index
+        return None

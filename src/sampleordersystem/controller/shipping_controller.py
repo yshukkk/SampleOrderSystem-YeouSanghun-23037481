@@ -33,6 +33,7 @@ Follows the same injected `input_func`/`output_func` pattern as
 driven end-to-end in tests without a real console.
 """
 
+from sampleordersystem.controller._order_lookup import ORDER_NOT_FOUND_MESSAGE, find_order_by_id
 from sampleordersystem.model import order as order_model
 from sampleordersystem.model.order import OrderRepository
 from sampleordersystem.model.sample import SampleRepository
@@ -40,8 +41,6 @@ from sampleordersystem.view import menus, tables
 
 BACK_SENTINEL = "0"
 EXIT_MESSAGE = "출고 처리에서 돌아갑니다."
-INVALID_NUMBER_MESSAGE = "숫자로 입력해야 합니다: {raw}"
-ORDER_NOT_FOUND_MESSAGE = "존재하지 않는 주문 번호입니다: {order_id}"
 RELEASE_SUCCESS_MESSAGE = "출고 처리되었습니다: ID={order_id} 상태={status}"
 SAMPLE_NOT_FOUND_FOR_ORDER_MESSAGE = "주문에 연결된 시료를 찾을 수 없습니다: {sample_id}"
 
@@ -92,13 +91,8 @@ class ShippingController:
         self._write(tables.render_order_table(confirmed))
 
     def _release_order(self, raw: str) -> None:
-        order_id = self._parse_int(raw)
-        if order_id is None:
-            return
-
-        order = self._order_repository.find(order_id)
+        order = find_order_by_id(raw, self._order_repository, self._write)
         if order is None:
-            self._write(ORDER_NOT_FOUND_MESSAGE.format(order_id=order_id))
             return
 
         try:
@@ -114,10 +108,3 @@ class ShippingController:
             self._write(SAMPLE_NOT_FOUND_FOR_ORDER_MESSAGE.format(sample_id=order.sample_id))
 
         self._write(RELEASE_SUCCESS_MESSAGE.format(order_id=order.id, status=new_status))
-
-    def _parse_int(self, raw: str) -> int | None:
-        try:
-            return int(raw)
-        except ValueError:
-            self._write(INVALID_NUMBER_MESSAGE.format(raw=raw))
-            return None

@@ -27,18 +27,28 @@ STOCK_STATUS_SHORT = "부족"
 STOCK_STATUS_DEPLETED = "고갈"
 
 
+def _render_table(header: str, separator: str, rows: list[str], empty_message: str) -> str:
+    """Shared table-rendering skeleton: empty placeholder, or header + separator + rows.
+
+    Every `render_*_table` function below builds only its own header/
+    separator constants and per-row formatting, then delegates the "is it
+    empty, otherwise join header+separator+rows with newlines" shape here.
+    """
+    if not rows:
+        return empty_message
+    return "\n".join([header, separator, *rows])
+
+
 def render_sample_table(samples: list[Sample]) -> str:
     """Render a list of samples as a simple table, including stock, or a placeholder message."""
-    if not samples:
-        return EMPTY_SAMPLE_LIST_MESSAGE
-
-    rows = ["ID | 이름 | 평균생산시간 | 수율 | 재고", "-------------------------------------"]
-    for sample in samples:
-        rows.append(
-            f"{sample.id} | {sample.name} | {round(sample.avg_production_time, 2)} | "
-            f"{round(sample.yield_rate, 2)} | {sample.stock}"
-        )
-    return "\n".join(rows)
+    header = "ID | 이름 | 평균생산시간 | 수율 | 재고"
+    separator = "-------------------------------------"
+    rows = [
+        f"{sample.id} | {sample.name} | {round(sample.avg_production_time, 2)} | "
+        f"{round(sample.yield_rate, 2)} | {sample.stock}"
+        for sample in samples
+    ]
+    return _render_table(header, separator, rows, EMPTY_SAMPLE_LIST_MESSAGE)
 
 
 def render_order_table(orders: list[Order]) -> str:
@@ -49,16 +59,14 @@ def render_order_table(orders: list[Order]) -> str:
     whatever list it is given, with no status filtering of its own) and by
     the shipping screen's CONFIRMED-only listing.
     """
-    if not orders:
-        return EMPTY_ORDER_LIST_MESSAGE
-
-    rows = ["ID | 시료ID | 고객명 | 수량 | 상태", "-------------------------------------"]
-    for order in orders:
-        rows.append(
-            f"{order.id} | {order.sample_id} | {order.customer_name} | "
-            f"{order.quantity} | {order.status}"
-        )
-    return "\n".join(rows)
+    header = "ID | 시료ID | 고객명 | 수량 | 상태"
+    separator = "-------------------------------------"
+    rows = [
+        f"{order.id} | {order.sample_id} | {order.customer_name} | "
+        f"{order.quantity} | {order.status}"
+        for order in orders
+    ]
+    return _render_table(header, separator, rows, EMPTY_ORDER_LIST_MESSAGE)
 
 
 def render_production_queue_table(items: list[ProductionQueueItem]) -> str:
@@ -67,19 +75,14 @@ def render_production_queue_table(items: list[ProductionQueueItem]) -> str:
     `items` is expected to already be in FIFO order (front-of-queue first) --
     this function does no sorting or filtering of its own, only rendering.
     """
-    if not items:
-        return EMPTY_PRODUCTION_QUEUE_MESSAGE
-
+    header = "주문번호 | 시료ID | 주문량 | 부족분 | 실생산량 | 총생산시간"
+    separator = "-------------------------------------------------------"
     rows = [
-        "주문번호 | 시료ID | 주문량 | 부족분 | 실생산량 | 총생산시간",
-        "-------------------------------------------------------",
+        f"{item.order_id} | {item.sample_id} | {item.quantity} | "
+        f"{item.shortfall} | {item.actual_production} | {round(item.total_time, 2)}"
+        for item in items
     ]
-    for item in items:
-        rows.append(
-            f"{item.order_id} | {item.sample_id} | {item.quantity} | "
-            f"{item.shortfall} | {item.actual_production} | {round(item.total_time, 2)}"
-        )
-    return "\n".join(rows)
+    return _render_table(header, separator, rows, EMPTY_PRODUCTION_QUEUE_MESSAGE)
 
 
 def render_production_status(count: int, progress: ProductionProgress | None) -> str:
@@ -136,13 +139,13 @@ def render_stock_status_table(rows: list[StockStatusRow]) -> str:
     rendering, matching this module's convention of pure rendering functions
     with filtering/classification left to the caller.
     """
-    if not rows:
-        return EMPTY_STOCK_STATUS_MESSAGE
-
-    lines = ["ID | 이름 | 재고 | 상태", "-------------------------------------"]
-    for row in rows:
-        lines.append(f"{row.sample.id} | {row.sample.name} | {row.sample.stock} | {row.status_label}")
-    return "\n".join(lines)
+    header = "ID | 이름 | 재고 | 상태"
+    separator = "-------------------------------------"
+    lines = [
+        f"{row.sample.id} | {row.sample.name} | {row.sample.stock} | {row.status_label}"
+        for row in rows
+    ]
+    return _render_table(header, separator, lines, EMPTY_STOCK_STATUS_MESSAGE)
 
 
 def render_summary_line(sample_count: int, order_count: int, production_queue_waiting: int) -> str:

@@ -31,6 +31,7 @@ Follows the same injected `input_func`/`output_func` pattern as
 tests without a real console.
 """
 
+from sampleordersystem.controller._menu_controller import MenuController
 from sampleordersystem.model import order as order_model
 from sampleordersystem.model.order import OrderRepository
 from sampleordersystem.model.production_queue import ProductionQueue
@@ -38,7 +39,6 @@ from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.view import menus, tables
 
 EXIT_MESSAGE = "생산 라인 메뉴에서 돌아갑니다."
-UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 ORDER_NOT_FOUND_FOR_QUEUE_ITEM_MESSAGE = "생산 큐 항목에 연결된 주문을 찾을 수 없습니다: {order_id}"
 SAMPLE_NOT_FOUND_FOR_QUEUE_ITEM_MESSAGE = "생산 큐 항목에 연결된 시료를 찾을 수 없습니다: {sample_id}"
 COMPLETE_SUCCESS_MESSAGE = (
@@ -47,7 +47,7 @@ COMPLETE_SUCCESS_MESSAGE = (
 )
 
 
-class ProductionController:
+class ProductionController(MenuController):
     """Runs one menu round-trip per call to `run_once()`."""
 
     def __init__(
@@ -80,20 +80,16 @@ class ProductionController:
         for message in self.drain_ready_items():
             self._write(message)
 
-        self._write(menus.render_production_menu())
-        choice = self._read().strip()
+        return super().run_once()
 
-        if choice == "3":
-            self._write(EXIT_MESSAGE)
-            return False
+    def _render_menu(self) -> str:
+        return menus.render_production_menu()
 
-        action = self._actions.get(choice)
-        if action is None:
-            self._write(UNKNOWN_CHOICE_MESSAGE.format(choice=choice))
-            return True
+    def _is_exit_choice(self, choice: str) -> bool:
+        return choice == "3"
 
-        action()
-        return True
+    def _exit_message(self) -> str:
+        return EXIT_MESSAGE
 
     def _show_status(self) -> None:
         progress = self.production_queue.front_progress()

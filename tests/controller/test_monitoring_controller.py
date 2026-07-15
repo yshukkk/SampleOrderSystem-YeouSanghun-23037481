@@ -11,23 +11,7 @@ from sampleordersystem.controller.monitoring_controller import MonitoringControl
 from sampleordersystem.model.order import OrderRepository
 from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.persistence import JsonRepository
-
-
-class FakeConsole:
-    """Supplies canned answers to input() calls and records print() calls."""
-
-    def __init__(self, answers):
-        self._answers = iter(answers)
-        self.printed = []
-
-    def read(self):
-        return next(self._answers)
-
-    def write(self, line):
-        self.printed.append(line)
-
-    def printed_text(self):
-        return "\n".join(self.printed)
+from tests.support import FakeConsole
 
 
 def build_controller(tmp_path, answers, sample_repository=None, order_repository=None):

@@ -1,12 +1,9 @@
 """Production queue model: FIFO scheduling + PRD shortfall/yield/time formulas.
 
 Pure model layer -- no persistence, no console I/O (per PLAN.md's layering
-rule: `view` -> `controller` -> `model`). PLAN.md Phase 4 scope is to build
-the queue and fill it (via `enqueue`, called from the controller's approval
-branch); Phase 5 is the one that will *drain* it (auto-completing
-PRODUCING -> CONFIRMED and crediting stock). Nothing here consumes the
-queue -- `dequeue`/`peek` exist so a later `production_controller.py` has
-something to call, but no such controller exists yet.
+rule: `view` -> `controller` -> `model`). `OrderController`'s approval
+branch fills the queue (via `enqueue`); `ProductionController` consumes it
+via `dequeue()`/`peek()`, automatically, through `drain_ready_items()`.
 
 Formulas, straight from PRD.md's "생산 라인" section, order fixed:
     부족분        = 주문 수량 - 현재 재고
