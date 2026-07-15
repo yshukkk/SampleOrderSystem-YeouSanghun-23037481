@@ -48,6 +48,11 @@ def render_order_menu() -> str:
     return f"{header}\n{body}\n번호를 선택하세요: "
 
 
+def render_intake_guide() -> str:
+    """Return the input-order guide line shown when intaking an order."""
+    return "(주문 접수 입력 순서: 시료 ID -> 고객명 -> 주문 수량)"
+
+
 def render_approval_guide() -> str:
     """Return the input-format guide shown just before reading an order id to approve."""
     return "(승인할 주문 번호를 입력하세요)"

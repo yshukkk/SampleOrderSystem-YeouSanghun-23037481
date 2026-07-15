@@ -88,6 +88,7 @@ class OrderController:
         return True
 
     def _intake_order(self) -> None:
+        self._write(menus.render_intake_guide())
         sample_id_raw = self._read().strip()
         sample_id = self._parse_int(sample_id_raw)
         if sample_id is None:

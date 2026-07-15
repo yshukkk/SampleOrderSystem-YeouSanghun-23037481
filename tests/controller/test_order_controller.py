@@ -68,6 +68,7 @@ def test_intake_succeeds_and_order_starts_as_reserved(tmp_path):
     assert order.quantity == 10
     assert order.status == "RESERVED"
     assert "RESERVED" in console.printed_text()
+    assert "주문 접수 입력 순서" in console.printed_text()
 
 
 def test_intake_with_invalid_sample_id_number_reports_error(tmp_path):
@@ -97,6 +98,14 @@ def test_unrecognized_choice_reports_an_error_and_keeps_running(tmp_path):
 
     assert still_running is True
     assert "잘못된" in console.printed_text()
+
+
+def test_bare_order_menu_display_does_not_show_intake_guide(tmp_path):
+    controller, console, _, _ = build_controller(tmp_path, ["5"])
+
+    controller.run_once()
+
+    assert "주문 접수 입력 순서" not in console.printed_text()
 
 
 def make_sample_and_order(tmp_path, *, stock, quantity, yield_rate=0.5, avg_production_time=2.0):
