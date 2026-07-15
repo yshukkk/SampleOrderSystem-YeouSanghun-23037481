@@ -93,3 +93,19 @@ class SampleRepository:
         if not updated:
             return None
         return self.find(sample_id)
+
+    def remove_stock(self, sample_id: int, amount: int) -> Sample | None:
+        """Decrease `sample_id`'s stock by `amount` and persist it.
+
+        Used by shipping (Phase 6) to deduct a shipped order's quantity from
+        the sample's "즉시 출고 가능한 수량". Clamped at a floor of 0 (stock
+        never goes negative). Returns the updated `Sample`, or `None` if
+        `sample_id` does not exist (caller decides how to report that).
+        """
+        sample = self.find(sample_id)
+        if sample is None:
+            return None
+        updated = self._repository.update(sample_id, stock=max(0, sample.stock - amount))
+        if not updated:
+            return None
+        return self.find(sample_id)

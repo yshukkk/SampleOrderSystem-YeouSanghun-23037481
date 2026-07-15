@@ -7,10 +7,13 @@ completion for the front item -- transitioning that order PRODUCING ->
 CONFIRMED (via `order_model.complete_production`) and crediting the
 produced quantity back onto the sample's stock.
 
-Per PLAN.md Phase 5, completion judgement is intentionally simple: "생산
-라인 메뉴 진입/새로고침 시 큐 맨 앞 항목을 완료 처리" -- there is no
-real-time timer, just an explicit "생산 완료 처리" action that completes
-the current front-of-queue item.
+Completion is now genuinely time-gated: the front-of-queue item's
+`started_at` is stamped by `ProductionQueue` the instant it becomes the
+front (see `model/production_queue.py`), and "생산 완료 처리" only actually
+completes the item once real elapsed time (per the queue's injectable
+clock) has reached its computed 총생산시간 (`ProductionQueue.is_front_ready()`).
+Selecting the action before that reports the remaining time and makes no
+state change at all (no dequeue, no order transition, no stock credit).
 
 The `ProductionQueue` instance passed in here must be the *same* object
 `OrderController` enqueues onto (shared by `__main__.py`), so that an order
@@ -35,6 +38,7 @@ EXIT_MESSAGE = "생산 라인 메뉴를 종료합니다."
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 STATUS_MESSAGE = "생산 라인 대기 중인 항목 수: {count}"
 EMPTY_QUEUE_MESSAGE = "생산 완료 처리할 항목이 없습니다."
+NOT_READY_MESSAGE = "아직 생산이 완료되지 않았습니다: 남은 시간={remaining_time}"
 ORDER_NOT_FOUND_FOR_QUEUE_ITEM_MESSAGE = "생산 큐 항목에 연결된 주문을 찾을 수 없습니다: {order_id}"
 SAMPLE_NOT_FOUND_FOR_QUEUE_ITEM_MESSAGE = "생산 큐 항목에 연결된 시료를 찾을 수 없습니다: {sample_id}"
 COMPLETE_SUCCESS_MESSAGE = (
@@ -92,10 +96,17 @@ class ProductionController:
         self._write(tables.render_production_queue_table(items))
 
     def _complete_production(self) -> None:
-        item = self.production_queue.dequeue()
-        if item is None:
+        if len(self.production_queue) == 0:
             self._write(EMPTY_QUEUE_MESSAGE)
             return
+
+        if not self.production_queue.is_front_ready():
+            self._write(
+                NOT_READY_MESSAGE.format(remaining_time=self.production_queue.remaining_time())
+            )
+            return
+
+        item = self.production_queue.dequeue()
 
         order = self._order_repository.find(item.order_id)
         if order is None:

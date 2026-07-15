@@ -78,6 +78,25 @@ def render_production_menu() -> str:
     return f"{header}\n{body}\n번호를 선택하세요: "
 
 
+_SHIPPING_MENU_LINES = (
+    "1. CONFIRMED 주문 목록",
+    "2. 출고 처리",
+    "3. 종료",
+)
+
+
+def render_shipping_menu() -> str:
+    """Return the full shipping menu text, ending in a prompt."""
+    header = "----- 출고 처리 -----"
+    body = "\n".join(_SHIPPING_MENU_LINES)
+    return f"{header}\n{body}\n번호를 선택하세요: "
+
+
+def render_shipping_guide() -> str:
+    """Return the input-format guide shown just before reading an order id to ship."""
+    return "(출고 처리할 주문 번호를 입력하세요)"
+
+
 def render_main_menu(summary: str) -> str:
     """Return the full main-menu text (with a summary line), ending in a prompt."""
     header = "----- SampleOrderSystem 메인 메뉴 -----"
@@ -86,7 +105,8 @@ def render_main_menu(summary: str) -> str:
             "1. 시료 관리",
             "2. 주문 (접수/승인/거절)",
             "3. 생산 라인",
-            "4. 종료",
+            "4. 출고 처리",
+            "5. 종료",
         )
     )
     return f"{header}\n{summary}\n{body}\n번호를 선택하세요: "

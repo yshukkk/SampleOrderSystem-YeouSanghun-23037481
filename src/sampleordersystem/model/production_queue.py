@@ -17,6 +17,7 @@ Formulas, straight from PRD.md's "생산 라인" section, order fixed:
 from __future__ import annotations
 
 import math
+import time
 from collections import deque
 from dataclasses import dataclass
 
@@ -64,35 +65,69 @@ class ProductionQueueItem:
     shortfall: int
     actual_production: int
     total_time: float
+    started_at: float | None = None
 
 
 class ProductionQueue:
     """FIFO queue of `ProductionQueueItem`s.
 
-    Only `enqueue` is used this phase (from `OrderController`'s approval
-    branch when stock is insufficient). `dequeue`/`peek`/iteration are
-    provided for a future consumer (Phase 5's `production_controller.py`)
-    but nothing in this phase calls them to *complete* production -- this
-    phase only builds and fills the queue.
+    Since PRD.md's 생산 라인 is a single production line (one item produced
+    at a time), only the front-of-queue item is ever actively "in
+    production" -- its `started_at` is stamped the instant it becomes the
+    front (either via `enqueue` into an empty queue, or via `dequeue`
+    freeing up the line for the next item). Items waiting behind the front
+    have `started_at is None` until their turn comes.
+
+    `clock` is injectable (defaults to `time.monotonic`, immune to wall-clock
+    adjustments) so tests can drive elapsed-time logic with a fake clock
+    instead of real `time.sleep()`.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, clock=time.monotonic) -> None:
         self._items: deque[ProductionQueueItem] = deque()
+        self._clock = clock
 
     def enqueue(self, item: ProductionQueueItem) -> None:
+        was_empty = not self._items
         self._items.append(item)
+        if was_empty:
+            item.started_at = self._clock()
 
     def dequeue(self) -> ProductionQueueItem | None:
         """Remove and return the front (oldest) item, or None if empty."""
         if not self._items:
             return None
-        return self._items.popleft()
+        item = self._items.popleft()
+        if self._items and self._items[0].started_at is None:
+            self._items[0].started_at = self._clock()
+        return item
 
     def peek(self) -> ProductionQueueItem | None:
         """Return the front item without removing it, or None if empty."""
         if not self._items:
             return None
         return self._items[0]
+
+    def remaining_time(self) -> float | None:
+        """Seconds left before the front item's production finishes.
+
+        `None` if the queue is empty. If the front item somehow has no
+        `started_at` (should not happen given enqueue/dequeue's stamping),
+        defensively treat it as "just started" -- full `total_time` left.
+        """
+        front = self.peek()
+        if front is None:
+            return None
+        if front.started_at is None:
+            return front.total_time
+        return max(0.0, front.total_time - (self._clock() - front.started_at))
+
+    def is_front_ready(self) -> bool:
+        """True only if the front item exists and its production time has elapsed."""
+        front = self.peek()
+        if front is None or front.started_at is None:
+            return False
+        return self._clock() - front.started_at >= front.total_time
 
     def __len__(self) -> int:
         return len(self._items)

@@ -6,9 +6,9 @@ route to a sub-menu until it signals exit, repeat until the user chooses
 to exit the whole application.
 
 Sample management (Phase 2), order intake/approval/rejection + the
-production queue (Phase 3/4), and the production line's auto-completion
-screen (Phase 5) exist as sub-menus so far -- shipping and monitoring are
-later phases and are not routed here yet.
+production queue (Phase 3/4), the production line's auto-completion
+screen (Phase 5), and shipping (Phase 6) exist as sub-menus so far --
+monitoring is a later phase and is not routed here yet.
 """
 
 from pathlib import Path
@@ -16,6 +16,7 @@ from pathlib import Path
 from sampleordersystem.controller.order_controller import OrderController
 from sampleordersystem.controller.production_controller import ProductionController
 from sampleordersystem.controller.sample_controller import SampleController
+from sampleordersystem.controller.shipping_controller import ShippingController
 from sampleordersystem.model.order import OrderRepository
 from sampleordersystem.model.production_queue import ProductionQueue
 from sampleordersystem.model.sample import SampleRepository
@@ -58,6 +59,7 @@ def run() -> None:
     sample_controller = SampleController(sample_repository)
     order_controller = OrderController(order_repository, sample_repository, production_queue=production_queue)
     production_controller = ProductionController(order_repository, sample_repository, production_queue)
+    shipping_controller = ShippingController(order_repository, sample_repository)
 
     keep_going = True
     while keep_going:
@@ -80,6 +82,10 @@ def run() -> None:
             while sub_running:
                 sub_running = production_controller.run_once()
         elif choice == "4":
+            sub_running = True
+            while sub_running:
+                sub_running = shipping_controller.run_once()
+        elif choice == "5":
             print(EXIT_MESSAGE)
             keep_going = False
         else:

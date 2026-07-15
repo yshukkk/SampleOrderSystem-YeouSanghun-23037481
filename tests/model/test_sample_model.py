@@ -86,6 +86,32 @@ def test_search_by_name_returns_empty_list_when_no_match(tmp_path):
     assert repository.search_by_name("없음") == []
 
 
+def test_remove_stock_decreases_by_amount(tmp_path):
+    repository = make_repository(tmp_path)
+    sample = repository.register(id=1, name="시료-A", avg_production_time=1.0, yield_rate=1.0)
+    repository._repository.update(sample.id, stock=10)
+
+    updated = repository.remove_stock(sample.id, 4)
+
+    assert updated.stock == 6
+
+
+def test_remove_stock_clamps_at_zero_floor(tmp_path):
+    repository = make_repository(tmp_path)
+    sample = repository.register(id=1, name="시료-A", avg_production_time=1.0, yield_rate=1.0)
+    repository._repository.update(sample.id, stock=3)
+
+    updated = repository.remove_stock(sample.id, 10)
+
+    assert updated.stock == 0
+
+
+def test_remove_stock_for_nonexistent_sample_returns_none(tmp_path):
+    repository = make_repository(tmp_path)
+
+    assert repository.remove_stock(999, 5) is None
+
+
 def test_repository_persists_across_repository_instances(tmp_path):
     path = tmp_path / "samples.json"
     SampleRepository(JsonRepository(path)).register(

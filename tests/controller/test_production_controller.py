@@ -12,6 +12,19 @@ from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.persistence import JsonRepository
 
 
+class FakeClock:
+    """A steppable fake clock: starts at 0.0, advances only when told to."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 class FakeConsole:
     """Supplies canned answers to input() calls and records print() calls."""
 
@@ -90,7 +103,8 @@ def test_list_queue_when_empty_reports_message_not_crash(tmp_path):
 
 
 def test_complete_production_transitions_order_and_credits_stock(tmp_path):
-    queue = ProductionQueue()
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
     controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["3"], queue=queue)
     sample, order = make_producing_order(sample_repo, order_repo, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0)
     queue.enqueue(
@@ -98,6 +112,7 @@ def test_complete_production_transitions_order_and_credits_stock(tmp_path):
             order_id=order.id, sample_id=sample.id, quantity=10, shortfall=7, actual_production=14, total_time=28.0
         )
     )
+    clock.advance(28.0)
 
     still_running = controller.run_once()
 
@@ -108,6 +123,49 @@ def test_complete_production_transitions_order_and_credits_stock(tmp_path):
     assert updated_sample.stock == 3 + 14
     assert len(queue) == 0
     assert "CONFIRMED" in console.printed_text()
+
+
+def test_complete_production_before_time_elapsed_reports_message_no_state_change(tmp_path):
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["3"], queue=queue)
+    sample, order = make_producing_order(sample_repo, order_repo, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0)
+    queue.enqueue(
+        ProductionQueueItem(
+            order_id=order.id, sample_id=sample.id, quantity=10, shortfall=7, actual_production=14, total_time=28.0
+        )
+    )
+    clock.advance(10.0)  # not enough yet
+
+    still_running = controller.run_once()
+
+    assert still_running is True
+    updated_order = order_repo.find(order.id)
+    assert updated_order.status == "PRODUCING"
+    updated_sample = sample_repo.find(sample.id)
+    assert updated_sample.stock == 3
+    assert len(queue) == 1
+    assert "완료되지 않았습니다" in console.printed_text()
+
+
+def test_complete_production_exactly_at_total_time_succeeds(tmp_path):
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["3"], queue=queue)
+    sample, order = make_producing_order(sample_repo, order_repo, stock=0, quantity=5, yield_rate=1.0, avg_production_time=1.0)
+    queue.enqueue(
+        ProductionQueueItem(
+            order_id=order.id, sample_id=sample.id, quantity=5, shortfall=5, actual_production=5, total_time=5.0
+        )
+    )
+    clock.advance(5.0)  # exactly total_time -- must count as ready
+
+    still_running = controller.run_once()
+
+    assert still_running is True
+    updated_order = order_repo.find(order.id)
+    assert updated_order.status == "CONFIRMED"
+    assert len(queue) == 0
 
 
 def test_complete_production_on_empty_queue_reports_message_not_crash(tmp_path):
@@ -122,7 +180,8 @@ def test_complete_production_on_empty_queue_reports_message_not_crash(tmp_path):
 
 
 def test_complete_production_dequeues_front_item_only(tmp_path):
-    queue = ProductionQueue()
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
     controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["3"], queue=queue)
     sample_a, order_a = make_producing_order(
         sample_repo, order_repo, stock=0, quantity=5, yield_rate=1.0, avg_production_time=1.0, sample_id=1
@@ -136,6 +195,7 @@ def test_complete_production_dequeues_front_item_only(tmp_path):
     queue.enqueue(
         ProductionQueueItem(order_id=order_b.id, sample_id=sample_b.id, quantity=5, shortfall=5, actual_production=5, total_time=5.0)
     )
+    clock.advance(5.0)
 
     controller.run_once()
 

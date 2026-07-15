@@ -68,3 +68,126 @@ def test_production_queue_is_fifo_not_reordered():
     assert queue.dequeue() is item_c
     assert queue.dequeue() is None
     assert len(queue) == 0
+
+
+class FakeClock:
+    """A steppable fake clock: starts at 0.0, advances only when told to."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def make_item(**overrides):
+    defaults = dict(
+        order_id=1, sample_id=1, quantity=10, shortfall=5, actual_production=6, total_time=10.0
+    )
+    defaults.update(overrides)
+    return ProductionQueueItem(**defaults)
+
+
+def test_enqueue_into_empty_queue_starts_the_timer_immediately():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    item = make_item(total_time=10.0)
+
+    queue.enqueue(item)
+
+    assert item.started_at == 0.0
+
+
+def test_enqueue_behind_an_existing_item_leaves_timer_unset():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    front = make_item(order_id=1, total_time=10.0)
+    behind = make_item(order_id=2, total_time=5.0)
+
+    queue.enqueue(front)
+    clock.advance(3.0)
+    queue.enqueue(behind)
+
+    assert front.started_at == 0.0
+    assert behind.started_at is None
+
+
+def test_is_front_ready_false_before_total_time_elapsed():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    queue.enqueue(make_item(total_time=10.0))
+
+    clock.advance(9.0)
+
+    assert queue.is_front_ready() is False
+
+
+def test_is_front_ready_true_at_or_after_total_time_elapsed():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    queue.enqueue(make_item(total_time=10.0))
+
+    clock.advance(10.0)
+
+    assert queue.is_front_ready() is True
+
+
+def test_is_front_ready_false_when_queue_empty():
+    queue = ProductionQueue(clock=FakeClock())
+
+    assert queue.is_front_ready() is False
+
+
+def test_remaining_time_decreases_as_clock_advances():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    queue.enqueue(make_item(total_time=10.0))
+
+    assert queue.remaining_time() == 10.0
+
+    clock.advance(4.0)
+    assert queue.remaining_time() == 6.0
+
+    clock.advance(6.0)
+    assert queue.remaining_time() == 0.0
+
+    clock.advance(100.0)
+    assert queue.remaining_time() == 0.0  # clamped, never negative
+
+
+def test_remaining_time_is_none_when_queue_empty():
+    queue = ProductionQueue(clock=FakeClock())
+
+    assert queue.remaining_time() is None
+
+
+def test_dequeue_starts_the_next_items_timer():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    front = make_item(order_id=1, total_time=10.0)
+    behind = make_item(order_id=2, total_time=5.0)
+    queue.enqueue(front)
+    queue.enqueue(behind)
+
+    clock.advance(10.0)
+    assert behind.started_at is None
+
+    dequeued = queue.dequeue()
+
+    assert dequeued is front
+    assert behind.started_at == 10.0
+    assert queue.remaining_time() == 5.0
+
+
+def test_dequeue_on_now_empty_queue_does_not_crash():
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    queue.enqueue(make_item(total_time=10.0))
+
+    clock.advance(10.0)
+    assert queue.dequeue() is not None
+    assert queue.dequeue() is None
+    assert queue.remaining_time() is None
