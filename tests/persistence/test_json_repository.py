@@ -111,3 +111,42 @@ def test_next_id_continues_after_restart(tmp_path):
     new_record = second_repo.create({"name": "sample-2"})
 
     assert new_record["id"] == 2
+
+
+def test_create_with_id_inserts_record_under_given_id(tmp_path):
+    repo = JsonRepository(tmp_path / "samples.json")
+
+    created = repo.create_with_id({"name": "sample-1"}, 42)
+
+    assert created["id"] == 42
+    assert created["name"] == "sample-1"
+    assert repo.find(42) == created
+
+
+def test_create_with_id_duplicate_is_rejected_and_does_not_overwrite(tmp_path):
+    repo = JsonRepository(tmp_path / "samples.json")
+    original = repo.create_with_id({"name": "sample-1"}, 7)
+
+    result = repo.create_with_id({"name": "sample-2"}, 7)
+
+    assert result is None
+    assert repo.find(7) == original
+
+
+def test_create_with_id_advances_next_id_past_manual_id(tmp_path):
+    repo = JsonRepository(tmp_path / "samples.json")
+
+    repo.create_with_id({"name": "sample-1"}, 5)
+    new_record = repo.create({"name": "sample-2"})
+
+    assert new_record["id"] == 6
+
+
+def test_create_with_id_does_not_lower_next_id_below_existing_counter(tmp_path):
+    repo = JsonRepository(tmp_path / "samples.json")
+    repo.create({"name": "sample-1"})  # id=1, next_id becomes 2
+
+    repo.create_with_id({"name": "sample-manual"}, 1000)
+    new_record = repo.create({"name": "sample-3"})
+
+    assert new_record["id"] == 1001

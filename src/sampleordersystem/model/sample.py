@@ -44,16 +44,25 @@ class SampleRepository:
     def __init__(self, repository: JsonRepository) -> None:
         self._repository = repository
 
-    def register(self, name: str, avg_production_time: float, yield_rate: float) -> Sample:
-        """Register a new sample. Stock always starts at 0 (PRD hard requirement)."""
-        record = self._repository.create(
+    def register(
+        self, id: int, name: str, avg_production_time: float, yield_rate: float
+    ) -> Sample | None:
+        """Register a new sample under a caller-supplied id (the primary key).
+
+        Stock always starts at 0 (PRD hard requirement). Returns `None` if
+        `id` is already in use (caller decides how to report the duplicate).
+        """
+        record = self._repository.create_with_id(
             {
                 "name": name,
                 "avg_production_time": avg_production_time,
                 "yield_rate": yield_rate,
                 "stock": INITIAL_STOCK,
-            }
+            },
+            id,
         )
+        if record is None:
+            return None
         return Sample.from_record(record)
 
     def list_all(self) -> list[Sample]:

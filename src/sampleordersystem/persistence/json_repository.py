@@ -46,6 +46,25 @@ class JsonRepository:
         self._save(data)
         return new_record
 
+    def create_with_id(self, record: dict, record_id: int) -> dict | None:
+        """Insert `record` under a caller-supplied `record_id` (primary key).
+
+        Returns ``None`` without modifying anything if `record_id` is already
+        in use (duplicate id -- caller decides how to report this). On
+        success, advances `next_id` past `record_id` so future auto-increment
+        `create()` calls on the same file never collide with it.
+        """
+        data = self._load()
+        for record_row in data["records"]:
+            if record_row.get("id") == record_id:
+                return None
+        new_record = dict(record)
+        new_record["id"] = record_id
+        data["records"].append(new_record)
+        data["next_id"] = max(data["next_id"], record_id + 1)
+        self._save(data)
+        return new_record
+
     def list_all(self) -> list[dict]:
         data = self._load()
         return data["records"]
