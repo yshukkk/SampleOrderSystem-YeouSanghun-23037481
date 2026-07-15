@@ -169,7 +169,7 @@ def test_exit_option_stops_the_loop(tmp_path):
     still_running = controller.run_once()
 
     assert still_running is False
-    assert "종료" in console.printed_text()
+    assert "돌아갑니다" in console.printed_text()
 
 
 def test_unrecognized_choice_reports_an_error_and_keeps_running(tmp_path):

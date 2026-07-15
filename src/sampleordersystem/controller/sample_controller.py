@@ -18,7 +18,7 @@ INVALID_SEARCH_FORMAT_MESSAGE = (
     "검색 형식이 올바르지 않습니다. 'ID: <숫자>' 또는 '이름: <검색어>' 형식으로 입력하세요."
 )
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
-EXIT_MESSAGE = "시료 관리를 종료합니다."
+EXIT_MESSAGE = "시료 관리에서 돌아갑니다."
 
 
 class SampleController:

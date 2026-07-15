@@ -35,7 +35,7 @@ from sampleordersystem.view import menus, tables
 from sampleordersystem.view.tables import StockStatusRow
 
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
-EXIT_MESSAGE = "모니터링 메뉴를 종료합니다."
+EXIT_MESSAGE = "모니터링 메뉴에서 돌아갑니다."
 
 # Same "currently active" order-status grouping `__main__.py` uses for the
 # main-menu summary's order count (RESERVED/CONFIRMED/PRODUCING) -- reused

@@ -96,19 +96,37 @@ class ProductionQueue:
     freeing up the line for the next item). Items waiting behind the front
     have `started_at is None` until their turn comes.
 
-    `clock` is injectable (defaults to `time.monotonic`, immune to wall-clock
-    adjustments) so tests can drive elapsed-time logic with a fake clock
-    instead of real `time.sleep()`.
+    `clock` is injectable (defaults to `time.time`, real wall-clock epoch
+    seconds) so tests can drive elapsed-time logic with a fake clock instead
+    of real `time.sleep()`. Wall-clock time is used (rather than
+    `time.monotonic`, whose reference point is arbitrary and not comparable
+    across separate process runs) so that a `started_at` value stamped in
+    one process run remains meaningful -- and genuine elapsed time can be
+    computed from it -- after that value is persisted and the process later
+    restarts (see `rebuild_production_queue`). All of this class's
+    elapsed-time math (`remaining_time()`, `is_front_ready()`,
+    `front_progress()`) is purely relative (`self._clock() - front.
+    started_at`), so switching the underlying clock function changes
+    nothing about that logic -- only what `started_at` values now mean.
     """
 
-    def __init__(self, clock=time.monotonic) -> None:
+    def __init__(self, clock=time.time) -> None:
         self._items: deque[ProductionQueueItem] = deque()
         self._clock = clock
 
     def enqueue(self, item: ProductionQueueItem) -> None:
+        """Append `item`; if it becomes the front, start its timer.
+
+        Only auto-stamps `started_at` to "now" when it is still `None` --
+        an item restored from persisted data (see `rebuild_production_queue`)
+        may already carry a real, previously-recorded `started_at`, which
+        must be respected rather than overwritten, so genuine elapsed time
+        (including time that passed while the process was not running) is
+        honored.
+        """
         was_empty = not self._items
         self._items.append(item)
-        if was_empty:
+        if was_empty and item.started_at is None:
             item.started_at = self._clock()
 
     def dequeue(self) -> ProductionQueueItem | None:
@@ -200,8 +218,20 @@ def rebuild_production_queue(
     restored item through the normal `enqueue()` path -- so the
     front-of-queue item's production timer restarts from zero at
     reconstruction time (its true elapsed progress before the restart is
-    lost). Both of these are accepted limitations of the in-memory-queue
-    design, not bugs to work around further.
+    lost) UNLESS the order record carries a persisted `production_started_at`
+    (a real wall-clock epoch-seconds timestamp, written by the controllers
+    whenever a queue item's timer actually starts -- see `order_controller.
+    py`/`production_controller.py`), in which case that exact value is
+    passed through as the reconstructed item's `started_at` and `enqueue()`'s
+    "only stamp if None" rule preserves it, so genuine elapsed time --
+    including time that passed while the process was not running -- is
+    honored across the restart. Orders with no such field (legacy data
+    predating this fix, or an order that was queued but never became the
+    front before the process ended) fall back to `started_at=None` and the
+    existing best-effort "stamp on becoming front" behavior. This field is
+    read directly from the raw JSON record here (not added to the `Order`
+    dataclass) -- it is a production-queue-internal detail, not part of the
+    order's own domain shape used elsewhere.
 
     Orders are processed in ascending `order.id` order as a deterministic
     stand-in for the original enqueue order (which is not recoverable
@@ -223,6 +253,12 @@ def rebuild_production_queue(
         actual_production = calculate_actual_production(shortfall, sample.yield_rate)
         total_time = calculate_total_time(sample.avg_production_time, actual_production)
 
+        # production_started_at is optional/repository-internal -- a record
+        # without it (legacy data, or an order queued but never promoted to
+        # front before the process ended) falls back to None via `.get()`.
+        record = order_repository.find_raw(order.id)
+        production_started_at = record.get("production_started_at") if record else None
+
         production_queue.enqueue(
             ProductionQueueItem(
                 order_id=order.id,
@@ -231,5 +267,6 @@ def rebuild_production_queue(
                 shortfall=shortfall,
                 actual_production=actual_production,
                 total_time=total_time,
+                started_at=production_started_at,
             )
         )

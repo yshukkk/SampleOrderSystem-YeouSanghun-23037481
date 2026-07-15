@@ -76,10 +76,16 @@ def test_production_queue_is_fifo_not_reordered():
 
 
 class FakeClock:
-    """A steppable fake clock: starts at 0.0, advances only when told to."""
+    """A steppable fake clock: starts at a large epoch-like value (plausible
+    wall-clock scale, since the real default clock is now `time.time`), only
+    advances when told to. All of `ProductionQueue`'s elapsed-time math is
+    purely relative (`self._clock() - front.started_at`), so nothing here
+    actually depends on the clock's absolute scale -- starting at a large
+    number instead of 0.0 is just to keep fake-clock values representative
+    of real wall-clock (epoch-seconds) values elsewhere in the code."""
 
-    def __init__(self):
-        self.now = 0.0
+    def __init__(self, start: float = 1_700_000_000.0):
+        self.now = start
 
     def __call__(self) -> float:
         return self.now
@@ -103,7 +109,7 @@ def test_enqueue_into_empty_queue_starts_the_timer_immediately():
 
     queue.enqueue(item)
 
-    assert item.started_at == 0.0
+    assert item.started_at == clock.now
 
 
 def test_enqueue_behind_an_existing_item_leaves_timer_unset():
@@ -112,12 +118,52 @@ def test_enqueue_behind_an_existing_item_leaves_timer_unset():
     front = make_item(order_id=1, total_time=10.0)
     behind = make_item(order_id=2, total_time=5.0)
 
+    started_at_time = clock.now
     queue.enqueue(front)
     clock.advance(3.0)
     queue.enqueue(behind)
 
-    assert front.started_at == 0.0
+    assert front.started_at == started_at_time
     assert behind.started_at is None
+
+
+def test_enqueue_into_empty_queue_respects_an_already_set_started_at():
+    # An item restored from persisted data (see `rebuild_production_queue`)
+    # may already carry a real, previously-recorded `started_at` -- enqueue()
+    # must not overwrite it with "now" just because the queue was empty.
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    restored_started_at = clock.now - 500.0  # simulates a much earlier real start
+    item = make_item(total_time=10.0, started_at=restored_started_at)
+
+    queue.enqueue(item)
+
+    assert item.started_at == restored_started_at
+
+
+def test_cross_restart_elapsed_time_is_honored_via_persisted_started_at():
+    # Core proof of Fix 1: a `started_at` persisted by an earlier "process"
+    # (real wall-clock epoch seconds) is honored by a brand-new
+    # `ProductionQueue` in a simulated "next process run", correctly
+    # recognizing that genuine wall-clock time has passed -- unlike the old
+    # `time.monotonic`-based bug, where every fresh process got its own
+    # arbitrary baseline and a restored item always looked "just started".
+    total_time = 30.0
+    persisted_started_at = 1_700_000_000.0  # written by "session A" before it exited
+
+    # "Session B": a fresh ProductionQueue, fresh fake clock, simulating the
+    # new process's clock reading well past total_time since the persisted
+    # start.
+    next_process_clock = FakeClock(start=persisted_started_at + total_time + 5.0)
+    queue = ProductionQueue(clock=next_process_clock)
+    item = make_item(total_time=total_time, started_at=persisted_started_at)
+
+    queue.enqueue(item)
+
+    assert queue.is_front_ready() is True
+    assert queue.remaining_time() == 0.0
+    progress = queue.front_progress()
+    assert progress.elapsed == total_time + 5.0
 
 
 def test_is_front_ready_false_before_total_time_elapsed():
@@ -183,7 +229,7 @@ def test_dequeue_starts_the_next_items_timer():
     dequeued = queue.dequeue()
 
     assert dequeued is front
-    assert behind.started_at == 10.0
+    assert behind.started_at == clock.now
     assert queue.remaining_time() == 5.0
 
 
@@ -365,6 +411,48 @@ def test_rebuild_against_no_producing_orders_leaves_queue_empty(tmp_path):
     rebuild_production_queue(order_repo, sample_repo, queue)
 
     assert len(queue) == 0
+
+
+def test_rebuild_uses_persisted_production_started_at_when_present(tmp_path):
+    # Fix 1's core reconstruction proof: a record carrying a persisted
+    # `production_started_at` (a real wall-clock timestamp from before the
+    # simulated restart) reconstructs with that EXACT value as `started_at`,
+    # not "now" -- so a fresh queue/clock correctly computes genuine elapsed
+    # time since the real original start, across the restart.
+    sample_repo, order_repo = build_repos(tmp_path)
+    order = make_producing_order(
+        sample_repo, order_repo, sample_id=1, stock=3, avg_production_time=2.0, yield_rate=0.5, quantity=10
+    )
+    persisted_started_at = 1_700_000_000.0
+    order_repo.update_status(order.id, STATUS_PRODUCING, production_started_at=persisted_started_at)
+
+    queue = ProductionQueue(clock=FakeClock(start=persisted_started_at + 1000.0))
+    rebuild_production_queue(order_repo, sample_repo, queue)
+
+    item = queue.peek()
+    assert item.started_at == persisted_started_at
+    # total_time = 28.0 (see the single-order test above); 1000s have
+    # elapsed since the real start -> long since ready.
+    assert queue.is_front_ready() is True
+
+
+def test_rebuild_falls_back_to_none_when_no_persisted_production_started_at(tmp_path):
+    # Legacy data (or an order queued but never promoted to front before the
+    # process ended) has no `production_started_at` field at all -- rebuild
+    # must not crash, and must fall back to the existing best-effort
+    # "stamp on becoming front" behavior (started_at is None until enqueue()
+    # stamps it to "now").
+    sample_repo, order_repo = build_repos(tmp_path)
+    order = make_producing_order(
+        sample_repo, order_repo, sample_id=1, stock=3, avg_production_time=2.0, yield_rate=0.5, quantity=10
+    )
+
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    rebuild_production_queue(order_repo, sample_repo, queue)
+
+    item = queue.peek()
+    assert item.started_at == clock.now  # stamped to "now" by enqueue()'s fallback
 
 
 def test_rebuild_against_completely_empty_repositories_does_not_crash(tmp_path):

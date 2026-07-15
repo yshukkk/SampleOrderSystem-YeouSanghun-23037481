@@ -30,6 +30,7 @@ SAMPLES_PATH = DATA_DIR / "samples.json"
 ORDERS_PATH = DATA_DIR / "orders.json"
 
 EXIT_MESSAGE = "SampleOrderSystem을 종료합니다."
+EOF_EXIT_MESSAGE = "입력이 종료되어 프로그램을 종료합니다."
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
 
 
@@ -75,49 +76,58 @@ def run() -> None:
     monitoring_controller = MonitoringController(sample_repository, order_repository)
 
     keep_going = True
-    while keep_going:
-        # Second auto-drain poll point (the first is at the top of
-        # `ProductionController.run_once()`): this app is synchronous and
-        # single-threaded with no background thread/timer, so a ready
-        # production item can only actually complete at a point the code
-        # regains control. Draining here too means completion happens as
-        # soon as control returns to the main menu, even if the user was
-        # bouncing between 시료/주문/출고/모니터링 sub-menus and never
-        # entered 생산 라인 at all.
-        for message in production_controller.drain_ready_items():
-            print(message)
+    try:
+        while keep_going:
+            # Second auto-drain poll point (the first is at the top of
+            # `ProductionController.run_once()`): this app is synchronous and
+            # single-threaded with no background thread/timer, so a ready
+            # production item can only actually complete at a point the code
+            # regains control. Draining here too means completion happens as
+            # soon as control returns to the main menu, even if the user was
+            # bouncing between 시료/주문/출고/모니터링 sub-menus and never
+            # entered 생산 라인 at all.
+            for message in production_controller.drain_ready_items():
+                print(message)
 
-        summary = render_summary(
-            sample_repository, order_repository, len(production_queue)
-        )
-        print(menus.render_main_menu(summary))
-        choice = input().strip()
+            summary = render_summary(
+                sample_repository, order_repository, len(production_queue)
+            )
+            print(menus.render_main_menu(summary))
+            choice = input().strip()
 
-        if choice == "1":
-            sub_running = True
-            while sub_running:
-                sub_running = sample_controller.run_once()
-        elif choice == "2":
-            sub_running = True
-            while sub_running:
-                sub_running = order_controller.run_once()
-        elif choice == "3":
-            sub_running = True
-            while sub_running:
-                sub_running = production_controller.run_once()
-        elif choice == "4":
-            sub_running = True
-            while sub_running:
-                sub_running = shipping_controller.run_once()
-        elif choice == "5":
-            sub_running = True
-            while sub_running:
-                sub_running = monitoring_controller.run_once()
-        elif choice == "6":
-            print(EXIT_MESSAGE)
-            keep_going = False
-        else:
-            print(UNKNOWN_CHOICE_MESSAGE.format(choice=choice))
+            if choice == "1":
+                sub_running = True
+                while sub_running:
+                    sub_running = sample_controller.run_once()
+            elif choice == "2":
+                sub_running = True
+                while sub_running:
+                    sub_running = order_controller.run_once()
+            elif choice == "3":
+                sub_running = True
+                while sub_running:
+                    sub_running = production_controller.run_once()
+            elif choice == "4":
+                sub_running = True
+                while sub_running:
+                    sub_running = shipping_controller.run_once()
+            elif choice == "5":
+                sub_running = True
+                while sub_running:
+                    sub_running = monitoring_controller.run_once()
+            elif choice == "6":
+                print(EXIT_MESSAGE)
+                keep_going = False
+            else:
+                print(UNKNOWN_CHOICE_MESSAGE.format(choice=choice))
+    except EOFError:
+        # Piped/batch input ran out (or, in principle, a real user hit
+        # Ctrl+D/Ctrl+Z) -- any `input()` call anywhere in this app's main
+        # loop or any sub-controller's `input_func` calls can raise this.
+        # Catching it once here, at the single outermost point, turns what
+        # would otherwise be a raw traceback into a graceful shutdown
+        # message, without scattering try/except across every controller.
+        print(EOF_EXIT_MESSAGE)
 
 
 if __name__ == "__main__":

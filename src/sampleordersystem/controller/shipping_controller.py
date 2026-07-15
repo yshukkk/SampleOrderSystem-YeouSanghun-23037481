@@ -1,12 +1,22 @@
 """Controller for the Shipping console screen (PRD "6. 출고 처리").
 
-Mirrors the "select -> look up -> transition -> persist -> report" flow
-already established by `OrderController`'s approve/reject actions: list
-CONFIRMED-only orders, and ship a chosen order by calling the pure
-`order_model.release()` transition (CONFIRMED -> RELEASED), persisting the
-result via `OrderRepository.update_status`. No new persistence/table
-rendering is needed -- `OrderRepository`/`render_order_table` are reused
-as-is (per PLAN.md Phase 6).
+Redesigned to drop the old numbered menu (1. CONFIRMED 목록 / 2. 출고 처리
+/ 3. 종료) entirely: every call to `run_once()` auto-shows the CONFIRMED
+order list first, then directly prompts for an order id to ship -- there
+is no separate "list" or "출고 처리" selection step, the list-then-prompt
+IS the whole interaction. Typing `0` (the documented back sentinel, see
+`menus.render_shipping_prompt`) returns to the main menu (`run_once()`
+returns `False`) without shipping anything; any other input is parsed as
+an order id and an attempt is made to ship it. After processing (success
+or a handled error), `run_once()` returns `True` so the caller
+(`__main__.py`'s loop) calls it again, re-showing the now-updated
+CONFIRMED list and re-prompting -- letting the user ship multiple orders
+in one visit without re-navigating the main menu each time.
+
+Ships a chosen order by calling the pure `order_model.release()`
+transition (CONFIRMED -> RELEASED), persisting the result via
+`OrderRepository.update_status`. No new persistence/table rendering is
+needed -- `OrderRepository`/`render_order_table` are reused as-is.
 
 Stock (Sample's "즉시 출고 가능한 수량" per PRD.md) is deducted on a
 successful release: goods only actually leave via shipping, so that's the
@@ -24,12 +34,12 @@ driven end-to-end in tests without a real console.
 """
 
 from sampleordersystem.model import order as order_model
-from sampleordersystem.model.order import Order, OrderRepository
+from sampleordersystem.model.order import OrderRepository
 from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.view import menus, tables
 
-UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
-EXIT_MESSAGE = "출고 처리 메뉴를 종료합니다."
+BACK_SENTINEL = "0"
+EXIT_MESSAGE = "출고 처리에서 돌아갑니다."
 INVALID_NUMBER_MESSAGE = "숫자로 입력해야 합니다: {raw}"
 ORDER_NOT_FOUND_MESSAGE = "존재하지 않는 주문 번호입니다: {order_id}"
 RELEASE_SUCCESS_MESSAGE = "출고 처리되었습니다: ID={order_id} 상태={status}"
@@ -37,7 +47,7 @@ SAMPLE_NOT_FOUND_FOR_ORDER_MESSAGE = "주문에 연결된 시료를 찾을 수 �
 
 
 class ShippingController:
-    """Runs one menu round-trip per call to `run_once()`."""
+    """Runs one auto-list-then-prompt round-trip per call to `run_once()`."""
 
     def __init__(
         self,
@@ -50,26 +60,27 @@ class ShippingController:
         self._sample_repository = sample_repository
         self._read = input_func
         self._write = output_func
-        self._actions = {
-            "1": self._list_confirmed_orders,
-            "2": self._release_order,
-        }
 
     def run_once(self) -> bool:
-        """Show the menu, handle one choice, and report whether to continue."""
-        self._write(menus.render_shipping_menu())
-        choice = self._read().strip()
+        """Auto-show the CONFIRMED list, prompt for an order id, and report
+        whether to continue.
 
-        if choice == "3":
+        `0` returns to the main menu without shipping anything (`False`);
+        any other input is parsed as an order id and an attempt is made to
+        ship it, after which this always returns `True` so the caller loops
+        back here (re-showing the updated list) rather than requiring the
+        user to re-enter this sub-menu for each order.
+        """
+        self._write(menus.render_shipping_header())
+        self._list_confirmed_orders()
+        self._write(menus.render_shipping_prompt())
+        raw = self._read().strip()
+
+        if raw == BACK_SENTINEL:
             self._write(EXIT_MESSAGE)
             return False
 
-        action = self._actions.get(choice)
-        if action is None:
-            self._write(UNKNOWN_CHOICE_MESSAGE.format(choice=choice))
-            return True
-
-        action()
+        self._release_order(raw)
         return True
 
     def _list_confirmed_orders(self) -> None:
@@ -80,10 +91,14 @@ class ShippingController:
         ]
         self._write(tables.render_order_table(confirmed))
 
-    def _release_order(self) -> None:
-        self._write(menus.render_shipping_guide())
-        order = self._read_order_by_id()
+    def _release_order(self, raw: str) -> None:
+        order_id = self._parse_int(raw)
+        if order_id is None:
+            return
+
+        order = self._order_repository.find(order_id)
         if order is None:
+            self._write(ORDER_NOT_FOUND_MESSAGE.format(order_id=order_id))
             return
 
         try:
@@ -99,21 +114,6 @@ class ShippingController:
             self._write(SAMPLE_NOT_FOUND_FOR_ORDER_MESSAGE.format(sample_id=order.sample_id))
 
         self._write(RELEASE_SUCCESS_MESSAGE.format(order_id=order.id, status=new_status))
-
-    def _read_order_by_id(self) -> Order | None:
-        """Read one line, parse it as an order id, and look up the order.
-
-        Reports (and returns None for) a non-numeric id or an unknown order
-        id; otherwise returns the found `Order`.
-        """
-        order_id = self._parse_int(self._read().strip())
-        if order_id is None:
-            return None
-        order = self._order_repository.find(order_id)
-        if order is None:
-            self._write(ORDER_NOT_FOUND_MESSAGE.format(order_id=order_id))
-            return None
-        return order
 
     def _parse_int(self, raw: str) -> int | None:
         try:

@@ -1,6 +1,8 @@
-"""Tests for `__main__.render_summary`'s active-order-count filtering."""
+"""Tests for `__main__.render_summary`'s active-order-count filtering, and
+for `run()`'s graceful-shutdown behavior when stdin is exhausted."""
 
-from sampleordersystem.__main__ import render_summary
+from sampleordersystem import __main__ as main_module
+from sampleordersystem.__main__ import EOF_EXIT_MESSAGE, render_summary
 from sampleordersystem.model.order import OrderRepository
 from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.persistence import JsonRepository
@@ -40,3 +42,25 @@ def test_render_summary_does_not_mention_total_stock(tmp_path):
     summary = render_summary(sample_repo, order_repo, production_queue_waiting=0)
 
     assert "총 재고" not in summary
+
+
+def test_run_shuts_down_gracefully_on_eof_instead_of_raising(tmp_path, monkeypatch, capsys):
+    # Fix 2: when stdin is exhausted (piped/batch input ran out, or in
+    # principle Ctrl+D/Ctrl+Z), input() raises EOFError -- run()'s main loop
+    # must catch it once at the outermost point and print a friendly
+    # shutdown message instead of letting a raw traceback propagate.
+    #
+    # Redirect the data paths to a scratch tmp_path so this never touches
+    # the real data/ directory, and force the very first input() call to
+    # raise EOFError immediately (simulating stdin running dry right away).
+    monkeypatch.setattr(main_module, "SAMPLES_PATH", tmp_path / "samples.json")
+    monkeypatch.setattr(main_module, "ORDERS_PATH", tmp_path / "orders.json")
+
+    def fake_input(*args, **kwargs):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    main_module.run()  # must not raise
+
+    assert EOF_EXIT_MESSAGE in capsys.readouterr().out

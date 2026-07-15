@@ -35,8 +35,8 @@ def render_sample_table(samples: list[Sample]) -> str:
     rows = ["ID | 이름 | 평균생산시간 | 수율 | 재고", "-------------------------------------"]
     for sample in samples:
         rows.append(
-            f"{sample.id} | {sample.name} | {sample.avg_production_time} | "
-            f"{sample.yield_rate} | {sample.stock}"
+            f"{sample.id} | {sample.name} | {round(sample.avg_production_time, 2)} | "
+            f"{round(sample.yield_rate, 2)} | {sample.stock}"
         )
     return "\n".join(rows)
 
@@ -77,7 +77,7 @@ def render_production_queue_table(items: list[ProductionQueueItem]) -> str:
     for item in items:
         rows.append(
             f"{item.order_id} | {item.sample_id} | {item.quantity} | "
-            f"{item.shortfall} | {item.actual_production} | {item.total_time}"
+            f"{item.shortfall} | {item.actual_production} | {round(item.total_time, 2)}"
         )
     return "\n".join(rows)
 

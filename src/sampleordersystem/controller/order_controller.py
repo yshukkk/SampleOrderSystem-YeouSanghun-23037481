@@ -3,18 +3,19 @@
 Phase 3 scope was intake only. Phase 4 adds the "접수된 주문 목록"
 listing and the approve/reject actions from PRD "3. 주문 승인/거절".
 
-The listing was later broadened to show RESERVED **and** PRODUCING orders
-(instead of RESERVED-only): a PRODUCING order is otherwise invisible after
-a process restart, since `ProductionQueue` is in-memory only and is
-rebuilt empty on startup while `orders.json` still correctly says
-PRODUCING. Sourcing this listing fresh from `OrderRepository.list_all()`
-(re-read from disk every call) rather than from the in-memory queue means
-a PRODUCING order stays visible here regardless of whether it also
-happens to be sitting in the queue. CONFIRMED/RELEASED/REJECTED orders are
-still excluded -- this listing is only for orders that are neither
-finished nor yet shippable. The approve/reject actions themselves are
-unchanged -- they still only operate on RESERVED orders via
-`order_model.approve`/`reject`'s transition guards.
+The listing was briefly broadened to show RESERVED **and** PRODUCING
+orders, to work around PRODUCING orders being invisible after a process
+restart (since `ProductionQueue` was in-memory only). Now that
+`production_started_at` is persisted and `rebuild_production_queue`
+correctly reconstructs the queue (with accurate elapsed time) on startup,
+PRODUCING orders are dependably visible/manageable via the "생산 라인"
+screen's own listing instead, so this listing has reverted to
+RESERVED-only -- its purpose is "orders awaiting an approve/reject
+decision," which by definition can only be RESERVED.
+CONFIRMED/PRODUCING/RELEASED/REJECTED orders are all excluded here. The
+approve/reject actions themselves are unchanged -- they still only
+operate on RESERVED orders via `order_model.approve`/`reject`'s
+transition guards.
 
 - Approve: RESERVED order + stock >= quantity -> immediate CONFIRMED (no
   production queue entry). RESERVED order + stock < quantity -> PRODUCING,
@@ -47,7 +48,7 @@ from sampleordersystem.view import menus, tables
 UNKNOWN_SAMPLE_MESSAGE = "등록되지 않은 시료 ID입니다: {sample_id}"
 INVALID_NUMBER_MESSAGE = "숫자로 입력해야 합니다: {raw}"
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
-EXIT_MESSAGE = "주문 메뉴를 종료합니다."
+EXIT_MESSAGE = "주문 메뉴에서 돌아갑니다."
 INTAKE_SUCCESS_MESSAGE = "주문이 접수되었습니다: ID={order_id} 상태={status}"
 ORDER_NOT_FOUND_MESSAGE = "존재하지 않는 주문 번호입니다: {order_id}"
 SAMPLE_NOT_FOUND_FOR_ORDER_MESSAGE = "주문에 연결된 시료를 찾을 수 없습니다: {sample_id}"
@@ -77,7 +78,7 @@ class OrderController:
         self.production_queue = production_queue if production_queue is not None else ProductionQueue()
         self._actions = {
             "1": self._intake_order,
-            "2": self._list_pending_orders,
+            "2": self._list_reserved_orders,
             "3": self._approve_order,
             "4": self._reject_order,
         }
@@ -127,16 +128,17 @@ class OrderController:
             INTAKE_SUCCESS_MESSAGE.format(order_id=order.id, status=order.status)
         )
 
-    def _list_pending_orders(self) -> None:
-        # RESERVED + PRODUCING only -- read fresh from the repository (not
-        # the in-memory production_queue) so a PRODUCING order stays
-        # visible here even after a restart wipes the in-memory queue.
-        pending = [
+    def _list_reserved_orders(self) -> None:
+        # RESERVED only -- this list's purpose is "orders awaiting an
+        # approve/reject decision," which by definition excludes every other
+        # status (PRODUCING orders are visible/manageable via the "생산
+        # 라인" screen's own listing instead).
+        reserved = [
             order
             for order in self._order_repository.list_all()
-            if order.status in (order_model.STATUS_RESERVED, order_model.STATUS_PRODUCING)
+            if order.status == order_model.STATUS_RESERVED
         ]
-        self._write(tables.render_order_table(pending))
+        self._write(tables.render_order_table(reserved))
 
     def _approve_order(self) -> None:
         self._write(menus.render_approval_guide())
@@ -171,11 +173,24 @@ class OrderController:
                     total_time=total_time,
                 )
             )
+            front = self.production_queue.peek()
+            if front is not None and front.order_id == order.id and front.started_at is not None:
+                # This item became the front of the (single) production line
+                # immediately -- its timer started right now. Persist that
+                # real wall-clock start time onto the order record so it
+                # survives a restart (see `rebuild_production_queue`); if it
+                # did NOT become the front (something else is already
+                # producing), its timer hasn't started yet, so nothing is
+                # persisted here -- that happens later, when it does become
+                # the front (see `production_controller._complete_front_item`).
+                self._order_repository.update_status(
+                    order.id, order_model.STATUS_PRODUCING, production_started_at=front.started_at
+                )
             self._write(
                 PRODUCTION_QUEUED_MESSAGE.format(
                     shortfall=shortfall,
                     actual_production=actual_production,
-                    total_time=total_time,
+                    total_time=round(total_time, 2),
                 )
             )
 

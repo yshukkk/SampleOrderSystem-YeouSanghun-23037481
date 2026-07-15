@@ -1,11 +1,14 @@
 """Integration tests for OrderController -- driven entirely through fakes.
 
-Phase 3 covered order intake. Phase 4 adds the RESERVED+PRODUCING listing
+Phase 3 covered order intake. Phase 4 adds the "접수된 주문 목록" listing
 and the approve/reject actions (PRD "3. 주문 승인/거절") plus the
 production queue they feed on the insufficient-stock branch. The listing
-was broadened from RESERVED-only to RESERVED+PRODUCING so a PRODUCING
-order stays visible after a restart wipes the in-memory production queue
-(see `test_list_pending_orders_includes_producing_even_with_empty_queue`).
+was briefly broadened to RESERVED+PRODUCING (to work around PRODUCING
+orders being invisible after a restart) and has since reverted to
+RESERVED-only now that `production_started_at` persistence lets
+`rebuild_production_queue` reconstruct the queue reliably -- PRODUCING
+orders are visible via the "생산 라인" screen instead (see
+`test_list_reserved_orders_excludes_producing_and_others`).
 """
 
 from sampleordersystem.controller.order_controller import OrderController
@@ -91,7 +94,7 @@ def test_exit_option_stops_the_loop(tmp_path):
     still_running = controller.run_once()
 
     assert still_running is False
-    assert "종료" in console.printed_text()
+    assert "돌아갑니다" in console.printed_text()
 
 
 def test_unrecognized_choice_reports_an_error_and_keeps_running(tmp_path):
@@ -130,7 +133,7 @@ def make_sample_and_order(tmp_path, *, stock, quantity, yield_rate=0.5, avg_prod
     return sample_repo, order_repo, sample, order
 
 
-def test_list_pending_orders_includes_reserved_and_producing_excludes_others(tmp_path):
+def test_list_reserved_orders_excludes_producing_and_others(tmp_path):
     sample_repo, order_repo, sample, reserved_order = make_sample_and_order(
         tmp_path, stock=100, quantity=5
     )
@@ -152,18 +155,22 @@ def test_list_pending_orders_includes_reserved_and_producing_excludes_others(tmp
 
     printed = console.printed_text()
     assert "홍길동" in printed
-    assert "박영희" in printed
+    assert "박영희" not in printed
     assert "김철수" not in printed
     assert "이민수" not in printed
     assert "최지우" not in printed
 
 
-def test_list_pending_orders_includes_producing_even_with_empty_queue(tmp_path):
-    # Simulates a restart: orders.json still has a PRODUCING order, but the
-    # in-memory ProductionQueue is freshly built and empty (the order was
-    # never enqueued through the normal approve-flow in this test at all).
-    # The listing must not depend on the in-memory queue in any way.
-    sample_repo, order_repo, sample, _ = make_sample_and_order(tmp_path, stock=0, quantity=5)
+def test_list_reserved_orders_excludes_producing_even_with_empty_queue(tmp_path):
+    # A PRODUCING order (e.g. restored after a restart, with the in-memory
+    # ProductionQueue freshly built and empty) must still be excluded from
+    # this RESERVED-only listing -- it belongs on the "생산 라인" screen's
+    # own listing instead, never here, regardless of the in-memory queue's
+    # state. `make_sample_and_order` also creates one genuinely RESERVED
+    # order, which must still show up so this isn't just an empty-list case.
+    sample_repo, order_repo, sample, reserved_order = make_sample_and_order(
+        tmp_path, stock=0, quantity=5
+    )
     producing_order = order_repo.intake(sample_id=sample.id, customer_name="복원됨", quantity=3)
     order_repo.update_status(producing_order.id, "PRODUCING")
 
@@ -175,9 +182,11 @@ def test_list_pending_orders_includes_producing_even_with_empty_queue(tmp_path):
     controller.run_once()
 
     printed = console.printed_text()
-    assert str(producing_order.id) in printed
-    assert "복원됨" in printed
-    assert "PRODUCING" in printed
+    assert "홍길동" in printed  # the RESERVED order is still shown
+    # Note: don't assert the raw order id string is absent -- it can
+    # coincidentally match unrelated digits in the menu text itself. The
+    # customer name is an unambiguous stand-in.
+    assert "복원됨" not in printed
 
 
 def test_approve_with_sufficient_stock_confirms_immediately_no_queue_entry(tmp_path):
@@ -231,6 +240,27 @@ def test_approve_with_insufficient_stock_producing_and_enqueues_correct_numbers(
     assert queued.actual_production == 14
     assert queued.total_time == 28.0
     assert "PRODUCING" in console.printed_text()
+
+
+def test_approve_with_insufficient_stock_persists_production_started_at(tmp_path):
+    # Fix 1: when an approved order becomes the front of the (empty)
+    # production line immediately, its real wall-clock `started_at` must be
+    # persisted onto the order record (not just held in the in-memory queue
+    # item) so it survives a restart -- see `rebuild_production_queue`.
+    sample_repo, order_repo, sample, order = make_sample_and_order(
+        tmp_path, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0
+    )
+    controller, console, _, _ = build_controller(
+        tmp_path, ["3", str(order.id)], sample_repository=sample_repo, order_repository=order_repo
+    )
+
+    controller.run_once()
+
+    queued = controller.production_queue.peek()
+    assert queued.started_at is not None
+
+    record = order_repo.find_raw(order.id)
+    assert record["production_started_at"] == queued.started_at
 
 
 def test_reject_transitions_reserved_order_to_rejected(tmp_path):

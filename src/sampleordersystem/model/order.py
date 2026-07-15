@@ -75,8 +75,25 @@ class OrderRepository:
             return None
         return Order.from_record(record)
 
-    def update_status(self, order_id: int, status: str) -> Order | None:
+    def find_raw(self, order_id: int) -> dict | None:
+        """Return the raw JSON record for `order_id`, or `None` if missing.
+
+        Exists so callers that need an optional, repository-internal field
+        not part of the `Order` dataclass's shape (currently only
+        `production_started_at`, read by `rebuild_production_queue`) can
+        read it via `.get()` without adding that field to `Order` itself,
+        which is used throughout the rest of the app.
+        """
+        return self._repository.find(order_id)
+
+    def update_status(self, order_id: int, status: str, **extra_fields) -> Order | None:
         """Persist a new status for an existing order.
+
+        `extra_fields` lets a caller pass through additional raw fields to
+        persist alongside the status update in the same write (e.g.
+        `production_started_at`, the real wall-clock timestamp a production
+        queue item's timer started at -- see `model/production_queue.py`).
+        Defaults to no extra fields, so existing call sites are unaffected.
 
         Returns the updated `Order`, or `None` if `order_id` does not exist
         (caller decides how to report that -- in practice the controller
@@ -84,7 +101,7 @@ class OrderRepository:
         status, so this should only fail if the order was deleted in
         between, which nothing in this system currently does).
         """
-        updated = self._repository.update(order_id, status=status)
+        updated = self._repository.update(order_id, status=status, **extra_fields)
         if not updated:
             return None
         return self.find(order_id)

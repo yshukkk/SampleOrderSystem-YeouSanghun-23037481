@@ -7,7 +7,7 @@ _MENU_LINES = (
     "1. 시료 등록",
     "2. 시료 목록 조회",
     "3. 시료 검색",
-    "4. 종료",
+    "4. 뒤로가기",
 )
 
 
@@ -30,10 +30,10 @@ def render_search_guide() -> str:
 
 _ORDER_MENU_LINES = (
     "1. 주문 접수",
-    "2. 접수된 주문 목록 (RESERVED/PRODUCING)",
+    "2. 접수된 주문 목록",
     "3. 주문 승인",
     "4. 주문 거절",
-    "5. 종료",
+    "5. 뒤로가기",
 )
 
 
@@ -67,8 +67,7 @@ def render_rejection_guide() -> str:
 _PRODUCTION_MENU_LINES = (
     "1. 생산 라인 현황",
     "2. 대기 주문 확인",
-    "3. 생산 완료 처리",
-    "4. 종료",
+    "3. 뒤로가기",
 )
 
 
@@ -79,29 +78,29 @@ def render_production_menu() -> str:
     return f"{header}\n{body}\n번호를 선택하세요: "
 
 
-_SHIPPING_MENU_LINES = (
-    "1. CONFIRMED 주문 목록",
-    "2. 출고 처리",
-    "3. 종료",
-)
+def render_shipping_header() -> str:
+    """Return the "출고 처리" screen header, shown before the CONFIRMED list.
+
+    There is no numbered menu here (see `render_shipping_prompt`) -- every
+    call to the shipping screen auto-shows the CONFIRMED order list, so this
+    is just a header line preceding that table.
+    """
+    return "----- 출고 처리 -----"
 
 
-def render_shipping_menu() -> str:
-    """Return the full shipping menu text, ending in a prompt."""
-    header = "----- 출고 처리 -----"
-    body = "\n".join(_SHIPPING_MENU_LINES)
-    return f"{header}\n{body}\n번호를 선택하세요: "
+def render_shipping_prompt() -> str:
+    """Return the prompt shown after the CONFIRMED list, ending in a prompt.
 
-
-def render_shipping_guide() -> str:
-    """Return the input-format guide shown just before reading an order id to ship."""
-    return "(출고 처리할 주문 번호를 입력하세요)"
+    `0` is the documented sentinel for "뒤로가기" (back to the main menu,
+    shipping nothing); any other input is parsed as an order id to ship.
+    """
+    return "출고할 주문 번호를 입력하세요 (뒤로가기: 0): "
 
 
 _MONITORING_MENU_LINES = (
     "1. 주문량 확인",
     "2. 재고량 확인",
-    "3. 종료",
+    "3. 뒤로가기",
 )
 
 

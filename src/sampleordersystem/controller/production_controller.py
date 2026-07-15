@@ -7,13 +7,16 @@ completion for the front item -- transitioning that order PRODUCING ->
 CONFIRMED (via `order_model.complete_production`) and crediting the
 produced quantity back onto the sample's stock.
 
-Completion is now genuinely time-gated: the front-of-queue item's
-`started_at` is stamped by `ProductionQueue` the instant it becomes the
-front (see `model/production_queue.py`), and "생산 완료 처리" only actually
-completes the item once real elapsed time (per the queue's injectable
-clock) has reached its computed 총생산시간 (`ProductionQueue.is_front_ready()`).
-Selecting the action before that reports the remaining time and makes no
-state change at all (no dequeue, no order transition, no stock credit).
+Completion is now genuinely time-gated and fully automatic: the
+front-of-queue item's `started_at` is stamped by `ProductionQueue` the
+instant it becomes the front (see `model/production_queue.py`), and
+`drain_ready_items()` only actually completes an item once real elapsed
+time (per the queue's injectable clock) has reached its computed
+총생산시간 (`ProductionQueue.is_front_ready()`). There is no manual
+"생산 완료 처리" menu action any more -- `drain_ready_items()` runs at the
+top of every `run_once()` (and again at the top of `__main__.py`'s main
+loop), so a ready item completes as soon as control returns to either of
+those points, with no menu choice needed to trigger it.
 
 The `ProductionQueue` instance passed in here must be the *same* object
 `OrderController` enqueues onto (shared by `__main__.py`), so that an order
@@ -34,10 +37,8 @@ from sampleordersystem.model.production_queue import ProductionQueue
 from sampleordersystem.model.sample import SampleRepository
 from sampleordersystem.view import menus, tables
 
-EXIT_MESSAGE = "생산 라인 메뉴를 종료합니다."
+EXIT_MESSAGE = "생산 라인 메뉴에서 돌아갑니다."
 UNKNOWN_CHOICE_MESSAGE = "잘못된 메뉴 번호입니다: {choice}"
-EMPTY_QUEUE_MESSAGE = "생산 완료 처리할 항목이 없습니다."
-NOT_READY_MESSAGE = "아직 생산이 완료되지 않았습니다: 남은 시간={remaining_time}"
 ORDER_NOT_FOUND_FOR_QUEUE_ITEM_MESSAGE = "생산 큐 항목에 연결된 주문을 찾을 수 없습니다: {order_id}"
 SAMPLE_NOT_FOUND_FOR_QUEUE_ITEM_MESSAGE = "생산 큐 항목에 연결된 시료를 찾을 수 없습니다: {sample_id}"
 COMPLETE_SUCCESS_MESSAGE = (
@@ -65,7 +66,6 @@ class ProductionController:
         self._actions = {
             "1": self._show_status,
             "2": self._list_queue,
-            "3": self._complete_production,
         }
 
     def run_once(self) -> bool:
@@ -83,7 +83,7 @@ class ProductionController:
         self._write(menus.render_production_menu())
         choice = self._read().strip()
 
-        if choice == "4":
+        if choice == "3":
             self._write(EXIT_MESSAGE)
             return False
 
@@ -135,10 +135,9 @@ class ProductionController:
         """Complete the current front-of-queue item.
 
         Assumes the caller has already confirmed the front item exists and
-        `is_front_ready()` -- this does not re-check readiness itself, to
-        avoid duplicating that check across `drain_ready_items()` and
-        `_complete_production()`. Returns the formatted success/failure
-        message; does not print it.
+        `is_front_ready()` -- this does not re-check readiness itself, since
+        `drain_ready_items()` (its only caller) already guarantees both.
+        Returns the formatted success/failure message; does not print it.
         """
         item = self.production_queue.dequeue()
 
@@ -153,6 +152,19 @@ class ProductionController:
 
         self._order_repository.update_status(order.id, new_status)
 
+        # dequeue() may have just promoted a new front item and stamped its
+        # timer to "now" (real wall-clock time, since started_at was None) --
+        # persist that real start time onto its order record too, so it also
+        # survives a restart (mirrors the same persistence done in
+        # `order_controller.py`'s approve flow for the immediately-front case).
+        new_front = self.production_queue.peek()
+        if new_front is not None and new_front.started_at is not None:
+            self._order_repository.update_status(
+                new_front.order_id,
+                order_model.STATUS_PRODUCING,
+                production_started_at=new_front.started_at,
+            )
+
         updated_sample = self._sample_repository.add_stock(item.sample_id, item.actual_production)
         if updated_sample is None:
             return SAMPLE_NOT_FOUND_FOR_QUEUE_ITEM_MESSAGE.format(sample_id=item.sample_id)
@@ -163,25 +175,3 @@ class ProductionController:
             actual_production=item.actual_production,
             sample_id=item.sample_id,
         )
-
-    def _complete_production(self) -> None:
-        """Manual "생산 완료 처리" menu action (choice "3").
-
-        Since `run_once()` now drains everything ready at the top of every
-        call, by the time this runs there will almost never be anything
-        newly ready that wasn't already caught there -- this action is now
-        a redundant-but-harmless manual force-check rather than the sole
-        completion path. Kept working standalone (still reports empty/
-        not-ready correctly) since it's reachable on its own via choice "3".
-        """
-        if len(self.production_queue) == 0:
-            self._write(EMPTY_QUEUE_MESSAGE)
-            return
-
-        if not self.production_queue.is_front_ready():
-            self._write(
-                NOT_READY_MESSAGE.format(remaining_time=self.production_queue.remaining_time())
-            )
-            return
-
-        self._write(self._complete_front_item())

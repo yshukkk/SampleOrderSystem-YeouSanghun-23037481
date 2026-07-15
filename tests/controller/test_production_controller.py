@@ -2,7 +2,11 @@
 
 Phase 5 covers PRD "5. 생산 라인": status/count display, non-destructive
 FIFO listing of the production queue, and production-complete processing
-(dequeue front item, PRODUCING -> CONFIRMED, credit stock).
+(dequeue front item, PRODUCING -> CONFIRMED, credit stock). Completion is
+now fully automatic via `drain_ready_items()` (called at the top of every
+`run_once()`) -- there is no manual "생산 완료 처리" menu action any more,
+so all completion coverage here drives `drain_ready_items()` directly (or
+via `run_once()`'s auto-drain), never a menu choice.
 """
 
 from sampleordersystem.controller.production_controller import ProductionController
@@ -71,7 +75,7 @@ def test_status_reflects_current_queue_length(tmp_path):
     queue = ProductionQueue()
     queue.enqueue(ProductionQueueItem(order_id=1, sample_id=1, quantity=5, shortfall=3, actual_production=6, total_time=12.0))
     queue.enqueue(ProductionQueueItem(order_id=2, sample_id=1, quantity=5, shortfall=3, actual_production=6, total_time=12.0))
-    controller, console, _, _, _ = build_controller(tmp_path, ["1", "4"], queue=queue)
+    controller, console, _, _, _ = build_controller(tmp_path, ["1", "3"], queue=queue)
 
     controller.run_once()
 
@@ -87,7 +91,7 @@ def test_status_shows_in_production_line_with_progress_when_queue_non_empty(tmp_
         )
     )
     clock.advance(10.0)  # half elapsed -> produced_so_far == 5
-    controller, console, _, _, _ = build_controller(tmp_path, ["1", "4"], queue=queue)
+    controller, console, _, _, _ = build_controller(tmp_path, ["1", "3"], queue=queue)
 
     controller.run_once()
 
@@ -100,7 +104,7 @@ def test_status_shows_in_production_line_with_progress_when_queue_non_empty(tmp_
 
 
 def test_status_omits_in_production_line_when_queue_empty(tmp_path):
-    controller, console, _, _, _ = build_controller(tmp_path, ["1", "4"])
+    controller, console, _, _, _ = build_controller(tmp_path, ["1", "3"])
 
     controller.run_once()
 
@@ -133,87 +137,13 @@ def test_list_queue_when_empty_reports_message_not_crash(tmp_path):
     assert "없습니다" in console.printed_text()
 
 
-def test_complete_production_transitions_order_and_credits_stock(tmp_path):
+def test_drain_ready_items_dequeues_front_item_only(tmp_path):
+    # Auto-drain (the only completion path now that the manual "생산 완료
+    # 처리" menu action is gone) must complete just the front item when only
+    # it is ready, leaving the second item PRODUCING and still queued.
     clock = FakeClock()
     queue = ProductionQueue(clock=clock)
-    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["3"], queue=queue)
-    sample, order = make_producing_order(sample_repo, order_repo, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0)
-    queue.enqueue(
-        ProductionQueueItem(
-            order_id=order.id, sample_id=sample.id, quantity=10, shortfall=7, actual_production=14, total_time=28.0
-        )
-    )
-    clock.advance(28.0)
-
-    still_running = controller.run_once()
-
-    assert still_running is True
-    updated_order = order_repo.find(order.id)
-    assert updated_order.status == "CONFIRMED"
-    updated_sample = sample_repo.find(sample.id)
-    assert updated_sample.stock == 3 + 14
-    assert len(queue) == 0
-    assert "CONFIRMED" in console.printed_text()
-
-
-def test_complete_production_before_time_elapsed_reports_message_no_state_change(tmp_path):
-    clock = FakeClock()
-    queue = ProductionQueue(clock=clock)
-    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["3"], queue=queue)
-    sample, order = make_producing_order(sample_repo, order_repo, stock=3, quantity=10, yield_rate=0.5, avg_production_time=2.0)
-    queue.enqueue(
-        ProductionQueueItem(
-            order_id=order.id, sample_id=sample.id, quantity=10, shortfall=7, actual_production=14, total_time=28.0
-        )
-    )
-    clock.advance(10.0)  # not enough yet
-
-    still_running = controller.run_once()
-
-    assert still_running is True
-    updated_order = order_repo.find(order.id)
-    assert updated_order.status == "PRODUCING"
-    updated_sample = sample_repo.find(sample.id)
-    assert updated_sample.stock == 3
-    assert len(queue) == 1
-    assert "완료되지 않았습니다" in console.printed_text()
-
-
-def test_complete_production_exactly_at_total_time_succeeds(tmp_path):
-    clock = FakeClock()
-    queue = ProductionQueue(clock=clock)
-    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["3"], queue=queue)
-    sample, order = make_producing_order(sample_repo, order_repo, stock=0, quantity=5, yield_rate=1.0, avg_production_time=1.0)
-    queue.enqueue(
-        ProductionQueueItem(
-            order_id=order.id, sample_id=sample.id, quantity=5, shortfall=5, actual_production=5, total_time=5.0
-        )
-    )
-    clock.advance(5.0)  # exactly total_time -- must count as ready
-
-    still_running = controller.run_once()
-
-    assert still_running is True
-    updated_order = order_repo.find(order.id)
-    assert updated_order.status == "CONFIRMED"
-    assert len(queue) == 0
-
-
-def test_complete_production_on_empty_queue_reports_message_not_crash(tmp_path):
-    controller, console, sample_repo, order_repo, queue = build_controller(tmp_path, ["3"])
-
-    still_running = controller.run_once()
-
-    assert still_running is True
-    assert "없습니다" in console.printed_text()
-    assert order_repo.list_all() == []
-    assert sample_repo.list_all() == []
-
-
-def test_complete_production_dequeues_front_item_only(tmp_path):
-    clock = FakeClock()
-    queue = ProductionQueue(clock=clock)
-    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, ["3"], queue=queue)
+    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, [], queue=queue)
     sample_a, order_a = make_producing_order(
         sample_repo, order_repo, stock=0, quantity=5, yield_rate=1.0, avg_production_time=1.0, sample_id=1
     )
@@ -228,13 +158,45 @@ def test_complete_production_dequeues_front_item_only(tmp_path):
     )
     clock.advance(5.0)
 
-    controller.run_once()
+    controller.drain_ready_items()
 
     assert order_repo.find(order_a.id).status == "CONFIRMED"
     assert order_repo.find(order_b.id).status == "PRODUCING"
     assert len(queue) == 1
     remaining = queue.peek()
     assert remaining.order_id == order_b.id
+
+
+def test_drain_ready_items_persists_new_fronts_production_started_at(tmp_path):
+    # Fix 1: when completing the front item promotes a new item to the
+    # front, that new front's real wall-clock `started_at` (just stamped by
+    # `ProductionQueue.dequeue()`) must also be persisted onto its order
+    # record, so it too survives a restart.
+    clock = FakeClock()
+    queue = ProductionQueue(clock=clock)
+    controller, console, sample_repo, order_repo, _ = build_controller(tmp_path, [], queue=queue)
+    sample_a, order_a = make_producing_order(
+        sample_repo, order_repo, stock=0, quantity=5, yield_rate=1.0, avg_production_time=1.0, sample_id=1
+    )
+    sample_b, order_b = make_producing_order(
+        sample_repo, order_repo, stock=0, quantity=5, yield_rate=1.0, avg_production_time=1.0, sample_id=2
+    )
+    queue.enqueue(
+        ProductionQueueItem(order_id=order_a.id, sample_id=sample_a.id, quantity=5, shortfall=5, actual_production=5, total_time=5.0)
+    )
+    queue.enqueue(
+        ProductionQueueItem(order_id=order_b.id, sample_id=sample_b.id, quantity=5, shortfall=5, actual_production=5, total_time=5.0)
+    )
+    clock.advance(5.0)
+
+    controller.drain_ready_items()
+
+    new_front = queue.peek()
+    assert new_front.order_id == order_b.id
+    assert new_front.started_at == clock.now  # just stamped by dequeue()
+
+    record = order_repo.find_raw(order_b.id)
+    assert record["production_started_at"] == new_front.started_at
 
 
 def test_drain_ready_items_completes_ready_front_item_directly(tmp_path):
@@ -365,12 +327,12 @@ def test_run_once_auto_drains_ready_item_before_menu_choice_is_consumed(tmp_path
 
 
 def test_exit_option_stops_the_loop(tmp_path):
-    controller, console, _, _, _ = build_controller(tmp_path, ["4"])
+    controller, console, _, _, _ = build_controller(tmp_path, ["3"])
 
     still_running = controller.run_once()
 
     assert still_running is False
-    assert "종료" in console.printed_text()
+    assert "돌아갑니다" in console.printed_text()
 
 
 def test_unrecognized_choice_reports_an_error_and_keeps_running(tmp_path):
